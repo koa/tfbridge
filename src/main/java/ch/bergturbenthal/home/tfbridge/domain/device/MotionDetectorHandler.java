@@ -1,6 +1,7 @@
 package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
+import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import com.tinkerforge.BrickletMotionDetector;
 import com.tinkerforge.IPConnection;
 import lombok.extern.slf4j.Slf4j;
@@ -28,9 +29,9 @@ public class MotionDetectorHandler implements DeviceHandler {
 
   @Override
   public Disposable registerDevice(
-          final String uid, final String name, final IPConnection connection) {
+          final String uid, final BrickletSettings settings, final IPConnection connection) {
     final BrickletMotionDetector bricklet = new BrickletMotionDetector(uid, connection);
-    String topicPrefix = "BrickletMotionDetector/" + name;
+    String topicPrefix = "BrickletMotionDetector/" + settings.getName();
     final AtomicInteger counter = new AtomicInteger();
     bricklet.addMotionDetectedListener(
             () -> {

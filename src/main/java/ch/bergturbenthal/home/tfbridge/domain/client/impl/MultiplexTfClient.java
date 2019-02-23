@@ -2,6 +2,7 @@ package ch.bergturbenthal.home.tfbridge.domain.client.impl;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.TfClient;
 import ch.bergturbenthal.home.tfbridge.domain.device.DeviceHandler;
+import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.properties.TFEndpoint;
 import com.tinkerforge.*;
@@ -40,10 +41,10 @@ public class MultiplexTfClient implements TfClient {
                firmwareVersion,
                deviceIdentifier,
                enumerationType) -> {
-                final String deviceName = bridgeProperties.getBricklets().getOrDefault(uid, uid);
                 final DeviceHandler foundDeviceHandler = deviceHandlers.get(deviceIdentifier);
                 if (foundDeviceHandler != null) {
-                  registrations.add(foundDeviceHandler.registerDevice(uid, deviceName, ipConnection));
+                  final BrickletSettings settings = getBrickletSettings(bridgeProperties, uid);
+                  registrations.add(foundDeviceHandler.registerDevice(uid, settings, ipConnection));
                 }
               });
       ipConnection.addDisconnectedListener(
@@ -73,5 +74,16 @@ public class MultiplexTfClient implements TfClient {
         log.warn("Cannot connect to " + hostName + ":" + port, ex);
       }
     }
+  }
+
+  public BrickletSettings getBrickletSettings(
+          final BridgeProperties bridgeProperties, final String uid) {
+    final BrickletSettings brickletSettings = bridgeProperties.getBricklets().get(uid);
+    if (brickletSettings != null) {
+      return brickletSettings;
+    }
+    final BrickletSettings emptySettings = new BrickletSettings();
+    emptySettings.setName(uid);
+    return emptySettings;
   }
 }

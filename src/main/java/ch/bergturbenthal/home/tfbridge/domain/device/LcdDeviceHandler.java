@@ -1,6 +1,7 @@
 package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
+import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,9 +42,9 @@ public class LcdDeviceHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(String uid, String name, IPConnection connection) {
+  public Disposable registerDevice(String uid, BrickletSettings settings, IPConnection connection) {
     final BrickletLCD128x64 bricklet = new BrickletLCD128x64(uid, connection);
-    String topicPrefix = "BrickletLCD128x64/" + name;
+    String topicPrefix = "BrickletLCD128x64/" + settings.getName();
     final AtomicInteger contrast = new AtomicInteger(14);
     final AtomicInteger backlight = new AtomicInteger(100);
     bricklet.addTouchPositionListener(
