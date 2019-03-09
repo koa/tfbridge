@@ -42,7 +42,7 @@ public class MotionDetectorV2Handler implements DeviceHandler {
     try {
       bricklet.addMotionDetectedListener(
               () -> {
-                log.info("Motion detected at " + settings);
+                //log.info("Motion detected at " + settings);
                 final int number = counter.incrementAndGet();
                 final MqttMessage message = new MqttMessage();
                 message.setQos(1);
@@ -50,7 +50,7 @@ public class MotionDetectorV2Handler implements DeviceHandler {
                 final Mono<MqttWireMessage> publish =
                         mqttClient.publish(topicPrefix + "/motion", message);
                 publish.subscribe(result -> {
-                  log.info("Message sent: " + result);
+                  //log.info("Message sent: " + result);
                 }, ex -> log.warn("Cannot send motion detection"));
               });
       sensitivityConsumer = new DisposableConsumer();

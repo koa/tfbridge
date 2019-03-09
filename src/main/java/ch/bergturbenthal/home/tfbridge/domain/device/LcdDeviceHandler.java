@@ -5,7 +5,6 @@ import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.ooxi.jdatauri.DataUri;
 import com.tinkerforge.BrickletLCD128x64;
 import com.tinkerforge.IPConnection;
 import com.tinkerforge.NotConnectedException;
@@ -20,7 +19,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -98,11 +97,10 @@ public class LcdDeviceHandler implements DeviceHandler {
     mqttClient.registerTopic(
             topicPrefix + "/image",
             mqttMessage -> {
-              final DataUri dataUri =
-                      DataUri.parse(new String(mqttMessage.getPayload()), StandardCharsets.UTF_8);
               try {
                 final BufferedImage bufferedImage =
-                        ImageIO.read(new ByteArrayInputStream(dataUri.getData()));
+                        ImageIO.read(
+                                new ByteArrayInputStream(Base64.getDecoder().decode(mqttMessage.getPayload())));
                 if (bufferedImage.getWidth() < 128) {
                   log.warn("Image to narrow found: " + bufferedImage.getWidth() + " expected: 128)");
                   return;
@@ -121,7 +119,7 @@ public class LcdDeviceHandler implements DeviceHandler {
                 }
                 bricklet.writePixels(0, 0, 127, 63, pixels);
 
-              } catch (IOException | TimeoutException | NotConnectedException ex) {
+              } catch (Exception ex) {
                 log.warn("Cannot process image", ex);
               }
             },

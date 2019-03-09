@@ -12,6 +12,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.MonoSink;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -25,7 +26,7 @@ import java.util.function.Consumer;
 @RefreshScope
 public class PahoMqttClient implements MqttClient {
   private final BridgeProperties                               properties;
-  private final IMqttAsyncClient                               asyncClient;
+  private final Mono<IMqttAsyncClient>                         asyncClient;
   private final Map<String, Collection<FluxSink<MqttMessage>>> registeredSinks =
           new ConcurrentHashMap<>();
 
@@ -36,15 +37,14 @@ public class PahoMqttClient implements MqttClient {
     final String hostAddress = mqtt.getAddress().getHostAddress();
     final int port = mqtt.getPort();
     String brokerAddress = "tcp://" + hostAddress + ":" + port;
-    asyncClient = new MqttAsyncClient(brokerAddress, mqtt.getClientId());
-    asyncClient.setCallback(
+    final MqttAsyncClient client = new MqttAsyncClient(brokerAddress, mqtt.getClientId());
+    client.setCallback(
             new MqttCallback() {
               @Override
               public void connectionLost(final Throwable throwable) {}
 
               @Override
-              public void messageArrived(final String s, final MqttMessage mqttMessage)
-                      throws Exception {
+              public void messageArrived(final String s, final MqttMessage mqttMessage) {
                 registeredSinks
                         .getOrDefault(s, Collections.emptyList())
                         .forEach(sink -> sink.next(mqttMessage));
@@ -53,15 +53,41 @@ public class PahoMqttClient implements MqttClient {
               @Override
               public void deliveryComplete(final IMqttDeliveryToken iMqttDeliveryToken) {}
             });
-    asyncClient.connect();
+    asyncClient =
+            Mono.create(
+                    (MonoSink<IMqttAsyncClient> sink) -> {
+                      try {
+                        client.connect(
+                                null,
+                                new IMqttActionListener() {
+                                  @Override
+                                  public void onSuccess(final IMqttToken asyncActionToken) {
+                                    log.info("Connected: " + client.isConnected());
+                                    sink.success(client);
+                                  }
+
+                                  @Override
+                                  public void onFailure(
+                                          final IMqttToken asyncActionToken, final Throwable exception) {
+                                    sink.error(exception);
+                                  }
+                                });
+                      } catch (MqttException e) {
+                        sink.error(e);
+                      }
+                    })
+                .cache();
+    log.info("Connected: " + client.isConnected());
   }
 
   @Override
   public Mono<MqttWireMessage> publish(String topic, MqttMessage message) {
-    return Mono.create(
-            sink -> {
-              try {
-                asyncClient.publish(
+    return asyncClient.flatMap(
+            client ->
+                    Mono.create(
+                            (MonoSink<MqttWireMessage> sink) -> {
+                              try {
+                                client.publish(
                         topic,
                         message,
                         null,
@@ -72,21 +98,24 @@ public class PahoMqttClient implements MqttClient {
                           }
 
                           @Override
-                          public void onFailure(final IMqttToken iMqttToken, final Throwable throwable) {
+                          public void onFailure(
+                                  final IMqttToken iMqttToken, final Throwable throwable) {
                             sink.error(throwable);
                           }
                         });
-              } catch (MqttException e) {
-                sink.error(e);
-              }
-            });
+                              } catch (MqttException e) {
+                                sink.error(e);
+                              }
+                            }));
   }
 
   @Override
   public Flux<MqttMessage> listenTopic(String topic) {
-    return Flux.create(
-            sink -> {
-              sink.onDispose(
+    return asyncClient.flatMapMany(
+            client ->
+                    Flux.create(
+                            sink -> {
+                              sink.onDispose(
                       () -> {
                         synchronized (registeredSinks) {
                           final Collection<FluxSink<MqttMessage>> existingSubscriptions =
@@ -95,31 +124,31 @@ public class PahoMqttClient implements MqttClient {
                           if (existingSubscriptions == null || existingSubscriptions.isEmpty()) {
                             registeredSinks.remove(topic);
                             try {
-                              asyncClient.unsubscribe(topic);
+                              client.unsubscribe(topic);
                             } catch (MqttException e) {
                               log.error("Cannot unsubscribe from " + topic, e);
                             }
                           }
                         }
                       });
-              synchronized (registeredSinks) {
-                final Collection<FluxSink<MqttMessage>> existingSubscriptions =
+                              synchronized (registeredSinks) {
+                                final Collection<FluxSink<MqttMessage>> existingSubscriptions =
                         registeredSinks.get(topic);
-                if (existingSubscriptions != null) {
-                  existingSubscriptions.add(sink);
-                } else {
-                  final Collection<FluxSink<MqttMessage>> newSubscriptions =
+                                if (existingSubscriptions != null) {
+                                  existingSubscriptions.add(sink);
+                                } else {
+                                  final Collection<FluxSink<MqttMessage>> newSubscriptions =
                           new ConcurrentLinkedDeque<>();
-                  registeredSinks.put(topic, newSubscriptions);
-                  newSubscriptions.add(sink);
-                  try {
-                    asyncClient.subscribe(topic, 1);
-                  } catch (MqttException e) {
-                    sink.error(e);
-                  }
-                }
-              }
-            });
+                                  registeredSinks.put(topic, newSubscriptions);
+                                  newSubscriptions.add(sink);
+                                  try {
+                                    client.subscribe(topic, 1);
+                                  } catch (MqttException e) {
+                                    sink.error(e);
+                                  }
+                                }
+                              }
+                            }));
   }
 
   @Override
