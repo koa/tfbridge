@@ -6,7 +6,6 @@ import java.net.InetAddress;
 
 @Data
 public class MqttEndpoint {
-  private InetAddress address;
-  private int         port     = 1883;
-  private String      clientId = "TinkerForgeBridge";
+  private String service;
+  private String clientId = "TinkerForgeBridge";
 }

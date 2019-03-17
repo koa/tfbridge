@@ -11,6 +11,7 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.internal.wire.MqttWireMessage;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -41,7 +42,7 @@ public class TemperatureBrickletHandler implements DeviceHandler {
               message.setQos(1);
               message.setPayload(String.valueOf(realTemp).getBytes());
               message.setRetained(true);
-              final Mono<MqttWireMessage> publish =
+              final Flux<MqttWireMessage> publish =
                       mqttClient.publish(topicPrefix + "/temperature", message);
               publish.subscribe(result -> {
               }, ex -> log.warn("Cannot send motion detection"));

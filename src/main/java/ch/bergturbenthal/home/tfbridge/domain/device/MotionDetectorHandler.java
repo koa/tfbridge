@@ -9,6 +9,7 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.internal.wire.MqttWireMessage;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -39,7 +40,7 @@ public class MotionDetectorHandler implements DeviceHandler {
               final MqttMessage message = new MqttMessage();
               message.setQos(1);
               message.setPayload(String.valueOf(number).getBytes());
-              final Mono<MqttWireMessage> publish =
+              final Flux<MqttWireMessage> publish =
                       mqttClient.publish(topicPrefix + "/motion", message);
               publish.subscribe(result -> {
               }, ex -> log.warn("Cannot send motion detection"));
