@@ -5,13 +5,20 @@ import ch.bergturbenthal.home.tfbridge.domain.device.DeviceHandler;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.properties.TFEndpoint;
-import com.tinkerforge.*;
+import com.tinkerforge.IPConnection;
+import com.tinkerforge.NotConnectedException;
+import com.tinkerforge.TinkerforgeException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.client.ServiceInstance;
+import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 
+import java.net.URI;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -19,18 +26,30 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class MultiplexTfClient implements TfClient {
-  private final BridgeProperties bridgeProperties;
+  private final BridgeProperties            bridgeProperties;
+  private final Map<Integer, DeviceHandler> deviceHandlers;
+  private final DiscoveryClient             discoveryClient;
+  private       Set<URI>                    runningConnections = new CopyOnWriteArraySet<>();
 
   public MultiplexTfClient(
-          final BridgeProperties bridgeProperties, final List<DeviceHandler> deviceHandlerList)
-          throws NetworkException, AlreadyConnectedException {
+          final BridgeProperties bridgeProperties,
+          final List<DeviceHandler> deviceHandlerList,
+          DiscoveryClient discoveryClient) {
     this.bridgeProperties = bridgeProperties;
-    Map<Integer, DeviceHandler> deviceHandlers =
-            deviceHandlerList
-                    .stream()
-                    .collect(Collectors.toMap(DeviceHandler::deviceId, Function.identity()));
+    deviceHandlers =
+            deviceHandlerList.stream()
+                             .collect(Collectors.toMap(DeviceHandler::deviceId, Function.identity()));
 
-    for (TFEndpoint endpoint : bridgeProperties.getTfEndpoint()) {
+    this.discoveryClient = discoveryClient;
+    discover();
+  }
+
+  @Scheduled(fixedDelay = 60 * 1000)
+  public void discover() {
+    final TFEndpoint tfEndpoint = bridgeProperties.getTfEndpoint();
+    for (ServiceInstance endpoint : discoveryClient.getInstances(tfEndpoint.getService())) {
+      final URI endpointUri = endpoint.getUri();
+      if (runningConnections.contains(endpointUri)) continue;
       final IPConnection ipConnection = new IPConnection();
       final List<Disposable> registrations = Collections.synchronizedList(new ArrayList<>());
       ipConnection.addEnumerateListener(
@@ -49,6 +68,7 @@ public class MultiplexTfClient implements TfClient {
               });
       ipConnection.addDisconnectedListener(
               disconnectReason -> {
+                runningConnections.remove(endpointUri);
                 log.info("disconnect " + endpoint.toString());
                 final Iterator<Disposable> iterator = registrations.iterator();
                 while (iterator.hasNext()) {
@@ -61,11 +81,12 @@ public class MultiplexTfClient implements TfClient {
               connectReason -> {
                 try {
                   ipConnection.enumerate();
+                  runningConnections.add(endpointUri);
                 } catch (NotConnectedException e) {
                   log.warn("Cannot connect", e);
                 }
               });
-      final String hostName = endpoint.getHost().getHostName();
+      final String hostName = endpoint.getHost();
       final int port = endpoint.getPort();
       try {
         ipConnection.connect(hostName, port);

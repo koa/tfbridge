@@ -41,7 +41,7 @@ public class PahoMqttClient implements MqttClient {
     discover();
   }
 
-  @Scheduled(fixedDelay = 60 * 1000)
+  @Scheduled(fixedDelay = 60 * 1000, initialDelay = 10 * 1000)
   public void discover() throws MqttException {
     final MqttEndpoint mqtt = properties.getMqtt();
     final String service = mqtt.getService();
@@ -78,16 +78,17 @@ public class PahoMqttClient implements MqttClient {
                 @Override
                 public void onSuccess(final IMqttToken asyncActionToken) {
                   log.info("Connected: " + client.isConnected());
-                  runningClients.put(inetSocketAddress, client);
                   final String[] topics = registeredSinks.keySet().toArray(new String[0]);
                   subscribeTopics(topics, client);
                 }
 
                 @Override
                 public void onFailure(final IMqttToken asyncActionToken, final Throwable exception) {
+                  runningClients.remove(inetSocketAddress, client);
                   log.warn("Cannot connect to " + hostAddress, exception);
                 }
               });
+      runningClients.put(inetSocketAddress, client);
     }
   }
 
@@ -172,7 +173,7 @@ public class PahoMqttClient implements MqttClient {
                           .forEach(
                                   client -> {
                                     try {
-                                      client.subscribe(topic, 1);
+                                      if (client.isConnected()) client.subscribe(topic, 1);
                                     } catch (MqttException e) {
                                       log.error("Cannot subscribe to " + topic, e);
                                     }

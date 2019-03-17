@@ -11,6 +11,7 @@ import org.springframework.cloud.client.discovery.simple.SimpleDiscoveryClientAu
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.time.Duration;
 
@@ -18,6 +19,7 @@ import java.time.Duration;
 @SpringBootApplication
 @ComponentScan(basePackageClasses = {BridgeProperties.class, MultiplexTfClient.class, DeviceHandler.class})
 @Import(SimpleDiscoveryClientAutoConfiguration.class)
+@EnableScheduling
 public class TfbridgeApplication {
 
   public static void main(String[] args) throws InterruptedException {
