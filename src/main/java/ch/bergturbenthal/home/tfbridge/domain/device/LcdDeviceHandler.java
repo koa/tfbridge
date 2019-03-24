@@ -18,8 +18,8 @@ import reactor.core.Disposable;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -46,6 +46,7 @@ public class LcdDeviceHandler implements DeviceHandler {
     String topicPrefix = "BrickletLCD128x64/" + settings.getName();
     final AtomicInteger contrast = new AtomicInteger(14);
     final AtomicInteger backlight = new AtomicInteger(100);
+    AtomicBoolean enableBacklight = new AtomicBoolean(false);
     bricklet.addTouchPositionListener(
             (pressure, x, y, age) -> {
               try {
@@ -53,6 +54,7 @@ public class LcdDeviceHandler implements DeviceHandler {
                 final MqttMessage message = new MqttMessage();
                 message.setRetained(false);
                 message.setPayload(objectMapper.writeValueAsBytes(touchPositionData));
+                message.setQos(1);
                 mqttClient
                         .publish(topicPrefix + "/touchPosition", message)
                         .subscribe(msg -> {
@@ -65,7 +67,7 @@ public class LcdDeviceHandler implements DeviceHandler {
             () -> {
               try {
                 final int contrast1 = contrast.get();
-                final int backlight1 = backlight.get();
+                final int backlight1 = enableBacklight.get() ? backlight.get() : 0;
                 log.info("Set config " + contrast1 + ", " + backlight1);
                 bricklet.setDisplayConfiguration(contrast1, backlight1, false, true);
               } catch (TimeoutException | NotConnectedException e) {
@@ -82,6 +84,16 @@ public class LcdDeviceHandler implements DeviceHandler {
               updateDisplayConfiguration.run();
             },
             backlightConsumer);
+    final Consumer<Disposable> backlightEnableConsumer = new DisposableConsumer();
+    mqttClient.registerTopic(
+            topicPrefix + "/enableBacklight",
+            mqttMessage -> {
+              boolean value = Boolean.parseBoolean(new String(mqttMessage.getPayload()));
+              log.info("Set backlight to " + value);
+              enableBacklight.set(value);
+              updateDisplayConfiguration.run();
+            },
+            backlightEnableConsumer);
     final Consumer<Disposable> contrastConsumer = new DisposableConsumer();
     // log.info("Set backlight to " + value);
     mqttClient.registerTopic(
@@ -130,7 +142,7 @@ public class LcdDeviceHandler implements DeviceHandler {
 
       bricklet.setTouchLEDConfig(BrickletLCD128x64.TOUCH_LED_CONFIG_SHOW_TOUCH);
       bricklet.setStatusLEDConfig(BrickletLCD128x64.STATUS_LED_CONFIG_OFF);
-      bricklet.setTouchPositionCallbackConfiguration(200, false);
+      bricklet.setTouchPositionCallbackConfiguration(200, true);
       // bricklet.setTouchGestureCallbackConfiguration(100, true);
       bricklet.clearDisplay();
       // bricklet.setDisplayConfiguration(14, 40, false, true);
@@ -141,6 +153,7 @@ public class LcdDeviceHandler implements DeviceHandler {
       imageUpdateConsumer.accept(null);
       contrastConsumer.accept(null);
       backlightConsumer.accept(null);
+      backlightEnableConsumer.accept(null);
     };
   }
 

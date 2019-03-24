@@ -64,6 +64,9 @@ public class PahoMqttClient implements MqttClient {
 
                 @Override
                 public void messageArrived(final String s, final MqttMessage mqttMessage) {
+                  if (log.isInfoEnabled()) {
+                    log.info(" -> " + s + ": " + new String(mqttMessage.getPayload()));
+                  }
                   registeredSinks
                           .getOrDefault(s, Collections.emptyList())
                           .forEach(sink -> sink.next(mqttMessage));
@@ -104,6 +107,9 @@ public class PahoMqttClient implements MqttClient {
 
   @Override
   public Flux<MqttWireMessage> publish(String topic, MqttMessage message) {
+    if (log.isInfoEnabled()) {
+      log.info(" <- " + topic + ": " + new String(message.getPayload()));
+    }
     return Flux.fromStream(runningClients.values().stream())
                .flatMap(
             client ->
