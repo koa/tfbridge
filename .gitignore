@@ -28,4 +28,4 @@
 /mvnw
 /.mvn/
 /src/main/resources/application.properties
-/src/main/resources/application.yml
+/application-dev.yml

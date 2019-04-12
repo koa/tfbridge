@@ -66,6 +66,9 @@ public class DmxBrickletHandler implements DeviceHandler {
       }
       bricklet.setDMXMode(BrickletDMX.DMX_MODE_MASTER);
       bricklet.setCommunicationLEDConfig(BrickletDMX.COMMUNICATION_LED_CONFIG_SHOW_COMMUNICATION);
+      return () -> {
+        disposableConsumers.forEach(d -> d.accept(null));
+      };
 
     } catch (TimeoutException | NotConnectedException e) {
       log.warn("Cannot communicate to bricklet " + settings.getName(), e);

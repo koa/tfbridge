@@ -64,7 +64,10 @@ public class MultiplexTfClient implements TfClient {
                 if (foundDeviceHandler != null) {
                   final BrickletSettings settings = getBrickletSettings(bridgeProperties, uid);
                   registrations.add(foundDeviceHandler.registerDevice(uid, settings, ipConnection));
-                }
+                  log.info("Bricklet " + uid + " registered by " + foundDeviceHandler.getClass()
+                                                                                     .getSimpleName() + ": " + settings);
+                } else
+                  log.info("No handler for Bricklet " + uid + " found");
               });
       ipConnection.addDisconnectedListener(
               disconnectReason -> {
