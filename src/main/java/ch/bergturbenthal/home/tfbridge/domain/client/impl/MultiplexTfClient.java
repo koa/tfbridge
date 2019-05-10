@@ -2,9 +2,9 @@ package ch.bergturbenthal.home.tfbridge.domain.client.impl;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.TfClient;
 import ch.bergturbenthal.home.tfbridge.domain.device.DeviceHandler;
-import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.properties.TFEndpoint;
+import com.tinkerforge.BrickMaster;
 import com.tinkerforge.IPConnection;
 import com.tinkerforge.NotConnectedException;
 import com.tinkerforge.TinkerforgeException;
@@ -16,9 +16,12 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 
+import javax.annotation.PreDestroy;
 import java.net.URI;
 import java.util.*;
-import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -29,7 +32,7 @@ public class MultiplexTfClient implements TfClient {
   private final BridgeProperties            bridgeProperties;
   private final Map<Integer, DeviceHandler> deviceHandlers;
   private final DiscoveryClient             discoveryClient;
-  private       Set<URI>                    runningConnections = new CopyOnWriteArraySet<>();
+  private       Map<URI, IPConnection>      runningConnections = new ConcurrentHashMap<>();
 
   public MultiplexTfClient(
           final BridgeProperties bridgeProperties,
@@ -49,7 +52,7 @@ public class MultiplexTfClient implements TfClient {
     final TFEndpoint tfEndpoint = bridgeProperties.getTfEndpoint();
     for (ServiceInstance endpoint : discoveryClient.getInstances(tfEndpoint.getService())) {
       final URI endpointUri = endpoint.getUri();
-      if (runningConnections.contains(endpointUri)) continue;
+      if (runningConnections.containsKey(endpointUri)) continue;
       final IPConnection ipConnection = new IPConnection();
       final List<Disposable> registrations = Collections.synchronizedList(new ArrayList<>());
       ipConnection.addEnumerateListener(
@@ -61,13 +64,19 @@ public class MultiplexTfClient implements TfClient {
                deviceIdentifier,
                enumerationType) -> {
                 final DeviceHandler foundDeviceHandler = deviceHandlers.get(deviceIdentifier);
-                if (foundDeviceHandler != null) {
-                  final BrickletSettings settings = getBrickletSettings(bridgeProperties, uid);
-                  registrations.add(foundDeviceHandler.registerDevice(uid, settings, ipConnection));
-                  log.info("Bricklet " + uid + " registered by " + foundDeviceHandler.getClass()
-                                                                                     .getSimpleName() + ": " + settings);
-                } else
-                  log.info("No handler for Bricklet " + uid + " found");
+                try {
+                  if (foundDeviceHandler != null) {
+                    registrations.add(foundDeviceHandler.registerDevice(uid, ipConnection));
+                    log.info(
+                            "Bricklet "
+                                    + uid
+                                    + " registered by "
+                                    + foundDeviceHandler.getClass().getSimpleName());
+                  } else log.info("No handler for Bricklet " + uid + " found");
+                } catch (TinkerforgeException e) {
+                  log.warn(
+                          "Cannot process registration on " + uid + " via " + endpointUri.getHost(), e);
+                }
               });
       ipConnection.addDisconnectedListener(
               disconnectReason -> {
@@ -84,7 +93,7 @@ public class MultiplexTfClient implements TfClient {
               connectReason -> {
                 try {
                   ipConnection.enumerate();
-                  runningConnections.add(endpointUri);
+                  runningConnections.put(endpointUri, ipConnection);
                 } catch (NotConnectedException e) {
                   log.warn("Cannot connect", e);
                 }
@@ -92,22 +101,32 @@ public class MultiplexTfClient implements TfClient {
       final String hostName = endpoint.getHost();
       final int port = endpoint.getPort();
       try {
-        ipConnection.connect(hostName, port);
         ipConnection.setAutoReconnect(true);
+        ipConnection.setTimeout(10);
+        ipConnection.connect(hostName, port);
       } catch (TinkerforgeException ex) {
         log.warn("Cannot connect to " + hostName + ":" + port, ex);
       }
     }
   }
 
-  public BrickletSettings getBrickletSettings(
-          final BridgeProperties bridgeProperties, final String uid) {
-    final BrickletSettings brickletSettings = bridgeProperties.getBricklets().get(uid);
-    if (brickletSettings != null) {
-      return brickletSettings;
-    }
-    final BrickletSettings emptySettings = new BrickletSettings();
-    emptySettings.setName(uid);
-    return emptySettings;
+  @PreDestroy
+  public void disconnectAll() {
+    runningConnections
+            .values()
+            .forEach(
+                    c -> {
+                      try {
+                        Semaphore waitSemaphore = new Semaphore(0);
+                        c.addDisconnectedListener(
+                                (reason) -> {
+                                  waitSemaphore.release();
+                                });
+                        c.disconnect();
+                        waitSemaphore.tryAcquire(5, TimeUnit.SECONDS);
+                      } catch (NotConnectedException | InterruptedException e) {
+                        log.warn("Cannot disconnect", e);
+                      }
+                    });
   }
 }

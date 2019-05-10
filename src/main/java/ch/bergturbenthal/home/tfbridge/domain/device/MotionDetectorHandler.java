@@ -1,16 +1,17 @@
 package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
-import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
+import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.tinkerforge.BrickletMotionDetector;
 import com.tinkerforge.IPConnection;
+import com.tinkerforge.NotConnectedException;
+import com.tinkerforge.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.internal.wire.MqttWireMessage;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -29,12 +30,14 @@ public class MotionDetectorHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(
-          final String uid, final BrickletSettings settings, final IPConnection connection) {
+  public Disposable registerDevice(final String uid, final IPConnection connection) throws
+                                                                                    TimeoutException,
+                                                                                    NotConnectedException {
     final BrickletMotionDetector bricklet = new BrickletMotionDetector(uid, connection);
-    String topicPrefix = "BrickletMotionDetector/" + settings.getName();
+    String topicPrefix = "BrickletMotionDetector/" + uid;
+    MqttMessageUtil.publishVersions(mqttClient, topicPrefix, bricklet.getIdentity());
     final AtomicInteger counter = new AtomicInteger();
-    bricklet.addMotionDetectedListener(
+    final BrickletMotionDetector.MotionDetectedListener motionDetectionListener =
             () -> {
               final int number = counter.incrementAndGet();
               final MqttMessage message = new MqttMessage();
@@ -44,9 +47,13 @@ public class MotionDetectorHandler implements DeviceHandler {
                       mqttClient.publish(topicPrefix + "/motion", message);
               publish.subscribe(result -> {
               }, ex -> log.warn("Cannot send motion detection"));
-            });
-
+            };
+    bricklet.addMotionDetectedListener(motionDetectionListener);
+    final String stateTopic = topicPrefix + "/state";
+    mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
     return () -> {
+      mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
+      bricklet.removeMotionDetectedListener(motionDetectionListener);
     };
   }
 }

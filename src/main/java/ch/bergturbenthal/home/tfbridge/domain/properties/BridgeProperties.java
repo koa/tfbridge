@@ -13,5 +13,4 @@ import java.util.Map;
 public class BridgeProperties {
   private TFEndpoint                    tfEndpoint = new TFEndpoint();
   private MqttEndpoint                  mqtt       = new MqttEndpoint();
-  private Map<String, BrickletSettings> bricklets;
 }

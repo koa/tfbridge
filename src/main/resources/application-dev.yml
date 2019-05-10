@@ -1,0 +1,15 @@
+bridge:
+
+sever.port: 8081
+
+spring:
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            mqtt:
+              - uri: tcp://172.31.72.2:1883
+            tf:
+              #- uri: tcp://10.1.64.11:4223
+              - uri: tcp://10.1.64.80:4223

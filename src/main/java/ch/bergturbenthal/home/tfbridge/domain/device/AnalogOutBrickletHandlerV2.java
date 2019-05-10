@@ -1,12 +1,9 @@
 package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
-import ch.bergturbenthal.home.tfbridge.domain.properties.BrickletSettings;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
-import com.tinkerforge.BrickletAnalogOutV2;
-import com.tinkerforge.IPConnection;
-import com.tinkerforge.NotConnectedException;
-import com.tinkerforge.TimeoutException;
+import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
+import com.tinkerforge.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
@@ -28,25 +25,34 @@ public class AnalogOutBrickletHandlerV2 implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(
-          final String uid, final BrickletSettings settings, final IPConnection connection) {
+  public Disposable registerDevice(final String uid, final IPConnection connection)
+          throws TimeoutException, NotConnectedException {
     final BrickletAnalogOutV2 brickletAnalogOutV2 = new BrickletAnalogOutV2(uid, connection);
-    final String name = settings.getName();
-    String channelPrefix = "AnalogOutV2/" + name;
+    String channelPrefix = "AnalogOutV2/" + uid;
+
+    final Device.Identity identity = brickletAnalogOutV2.getIdentity();
+    MqttMessageUtil.publishVersions(mqttClient, channelPrefix, identity);
+
     final Consumer<Disposable> disposableConsumer = new DisposableConsumer();
     mqttClient.registerTopic(
-            channelPrefix,
+            channelPrefix + "/value",
             mqttMessage -> {
-              final int currentValue = Integer.parseInt(new String(mqttMessage.getPayload()));
-              final int fencedValue = Math.min(127, Math.max(0, currentValue));
-              int mvValue = fencedValue * 10000 / 128;
+              final double currentValue =
+                      Double.parseDouble(new String(mqttMessage.getMessage().getPayload()));
+              final double fencedValue = Math.min(1, Math.max(0, currentValue));
+              int mvValue = (int) Math.round(fencedValue * 10000);
               try {
                 brickletAnalogOutV2.setOutputVoltage(mvValue);
               } catch (TimeoutException | NotConnectedException e) {
-                log.warn("Cannot update value on analog out " + name, e);
+                log.warn("Cannot update value on analog out " + uid, e);
               }
             },
             disposableConsumer);
-    return () -> disposableConsumer.accept(null);
+    final String stateTopic = channelPrefix + "/state";
+    mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
+    return () -> {
+      mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
+      disposableConsumer.accept(null);
+    };
   }
 }
