@@ -8,5 +8,5 @@ public interface DeviceHandler {
   int deviceId();
 
   Disposable registerDevice(String uid, IPConnection connection)
-          throws TinkerforgeException;
+      throws TinkerforgeException;
 }

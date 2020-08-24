@@ -16,11 +16,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 @Slf4j
 public class MasterBrickHandler implements DeviceHandler {
-  private final MqttClient               mqttClient;
+  private final MqttClient mqttClient;
   private final ScheduledExecutorService scheduledExecutorService;
 
   public MasterBrickHandler(
-          final MqttClient mqttClient, final ScheduledExecutorService scheduledExecutorService) {
+      final MqttClient mqttClient, final ScheduledExecutorService scheduledExecutorService) {
     this.mqttClient = mqttClient;
     this.scheduledExecutorService = scheduledExecutorService;
   }
@@ -32,54 +32,55 @@ public class MasterBrickHandler implements DeviceHandler {
 
   @Override
   public Disposable registerDevice(final String uid, final IPConnection connection)
-          throws TinkerforgeException {
+      throws TinkerforgeException {
     final BrickMaster brickMaster = new BrickMaster(uid, connection);
     final String topicPrefix = "Master/" + uid;
     MqttMessageUtil.publishVersions(mqttClient, topicPrefix, brickMaster.getIdentity());
 
     final BrickMaster.StackCurrentListener stackCurrentListener =
-            current -> {
-              mqttClient.send(topicPrefix + "/current", createValueMessage(current));
-            };
+        current -> {
+          mqttClient.send(topicPrefix + "/current", createValueMessage(current));
+        };
     brickMaster.addStackCurrentListener(stackCurrentListener);
     final BrickMaster.StackVoltageListener stackVoltageListener =
-            voltage -> mqttClient.send(topicPrefix + "/voltage", createValueMessage(voltage));
+        voltage -> mqttClient.send(topicPrefix + "/voltage", createValueMessage(voltage));
     brickMaster.addStackVoltageListener(stackVoltageListener);
     final BrickMaster.USBVoltageListener usbVoltageListener =
-            voltage -> mqttClient.send(topicPrefix + "/usbVoltage", createValueMessage(voltage));
+        voltage -> mqttClient.send(topicPrefix + "/usbVoltage", createValueMessage(voltage));
     brickMaster.addUSBVoltageListener(usbVoltageListener);
     brickMaster.setStackCurrentCallbackPeriod(10000);
     brickMaster.setStackVoltageCallbackPeriod(10000);
     brickMaster.setUSBVoltageCallbackPeriod(10000);
     AtomicInteger lastTemperatureValue = new AtomicInteger(Integer.MIN_VALUE);
     final ScheduledFuture<?> scheduledFuture =
-            scheduledExecutorService.scheduleWithFixedDelay(
+        scheduledExecutorService.scheduleWithFixedDelay(
+            () -> {
+              try {
+                final int chipTemperature = brickMaster.getChipTemperature();
+                final int lastValue = lastTemperatureValue.getAndSet(chipTemperature);
+                if (lastValue != chipTemperature) {
+                  mqttClient.send(
+                      topicPrefix + "/chipTemperature",
+                      MqttMessageUtil.createMessage(
+                          Double.toString(chipTemperature / 100.0), true));
+                }
+              } catch (TimeoutException e) {
+                log.warn("Cannot take chip temperature from " + uid, e);
+                scheduledExecutorService.submit(
                     () -> {
                       try {
-                        final int chipTemperature = brickMaster.getChipTemperature();
-                        final int lastValue = lastTemperatureValue.getAndSet(chipTemperature);
-                        if (lastValue != chipTemperature) {
-                          mqttClient.send(
-                                  topicPrefix + "/chipTemperature",
-                                  MqttMessageUtil.createMessage(Double.toString(chipTemperature / 10.0), true));
-                        }
-                      } catch (TimeoutException e) {
-                        log.warn("Cannot take chip temperature from " + uid, e);
-                        scheduledExecutorService.submit(
-                                () -> {
-                                  try {
-                                    connection.enumerate();
-                                  } catch (NotConnectedException e1) {
-                                    log.warn("Cannot enumerate connection again", e1);
-                                  }
-                                });
-                      } catch (NotConnectedException e) {
-                        log.warn("Cannot take chip temperature from " + uid, e);
+                        connection.enumerate();
+                      } catch (NotConnectedException e1) {
+                        log.warn("Cannot enumerate connection again", e1);
                       }
-                    },
-                    10,
-                    10,
-                    TimeUnit.SECONDS);
+                    });
+              } catch (TinkerforgeException e) {
+                log.warn("Cannot take chip temperature from " + uid, e);
+              }
+            },
+            10,
+            10,
+            TimeUnit.SECONDS);
 
     final String stateTopic = topicPrefix + "/state";
     mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);

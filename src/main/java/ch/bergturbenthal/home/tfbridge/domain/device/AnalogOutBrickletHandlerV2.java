@@ -26,7 +26,7 @@ public class AnalogOutBrickletHandlerV2 implements DeviceHandler {
 
   @Override
   public Disposable registerDevice(final String uid, final IPConnection connection)
-          throws TimeoutException, NotConnectedException {
+      throws TinkerforgeException {
     final BrickletAnalogOutV2 brickletAnalogOutV2 = new BrickletAnalogOutV2(uid, connection);
     String channelPrefix = "AnalogOutV2/" + uid;
 
@@ -35,19 +35,19 @@ public class AnalogOutBrickletHandlerV2 implements DeviceHandler {
 
     final Consumer<Disposable> disposableConsumer = new DisposableConsumer();
     mqttClient.registerTopic(
-            channelPrefix + "/value",
-            mqttMessage -> {
-              final double currentValue =
-                      Double.parseDouble(new String(mqttMessage.getMessage().getPayload()));
-              final double fencedValue = Math.min(1, Math.max(0, currentValue));
-              int mvValue = (int) Math.round(fencedValue * 10000);
-              try {
-                brickletAnalogOutV2.setOutputVoltage(mvValue);
-              } catch (TimeoutException | NotConnectedException e) {
-                log.warn("Cannot update value on analog out " + uid, e);
-              }
-            },
-            disposableConsumer);
+        channelPrefix + "/value",
+        mqttMessage -> {
+          final double currentValue =
+              Double.parseDouble(new String(mqttMessage.getMessage().getPayload()));
+          final double fencedValue = Math.min(1, Math.max(0, currentValue));
+          int mvValue = (int) Math.round(fencedValue * 10000);
+          try {
+            brickletAnalogOutV2.setOutputVoltage(mvValue);
+          } catch (TinkerforgeException e) {
+            log.warn("Cannot update value on analog out " + uid, e);
+          }
+        },
+        disposableConsumer);
     final String stateTopic = channelPrefix + "/state";
     mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
     return () -> {

@@ -9,7 +9,18 @@ spring:
         simple:
           instances:
             mqtt:
-              - uri: tcp://172.31.72.2:1883
+              - uri: tcp://localhost:1883
             tf:
               #- uri: tcp://10.1.64.11:4223
-              - uri: tcp://10.1.64.80:4223
+              - uri: tcp://10.192.64.12:4223
+    kubernetes:
+      config:
+        enable-api: false
+        enabled: false
+      secrets:
+        enabled: false
+      discovery:
+        enabled: false
+logging:
+  level:
+    org.eclipse.paho.client.mqttv3.internal.nls.logcat: debug

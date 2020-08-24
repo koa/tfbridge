@@ -5,10 +5,7 @@ import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tinkerforge.BrickletLCD128x64;
-import com.tinkerforge.IPConnection;
-import com.tinkerforge.NotConnectedException;
-import com.tinkerforge.TimeoutException;
+import com.tinkerforge.*;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
@@ -27,7 +24,7 @@ import java.util.function.Consumer;
 @Slf4j
 public class LcdDeviceHandler implements DeviceHandler {
 
-  private final MqttClient   mqttClient;
+  private final MqttClient mqttClient;
   private final ObjectMapper objectMapper;
 
   public LcdDeviceHandler(final MqttClient mqttClient, final ObjectMapper objectMapper) {
@@ -42,7 +39,7 @@ public class LcdDeviceHandler implements DeviceHandler {
 
   @Override
   public Disposable registerDevice(String uid, IPConnection connection)
-          throws TimeoutException, NotConnectedException {
+      throws TinkerforgeException {
     final BrickletLCD128x64 bricklet = new BrickletLCD128x64(uid, connection);
     String topicPrefix = "BrickletLCD128x64/" + uid;
     MqttMessageUtil.publishVersions(mqttClient, topicPrefix, bricklet.getIdentity());
@@ -50,96 +47,95 @@ public class LcdDeviceHandler implements DeviceHandler {
     final AtomicInteger backlight = new AtomicInteger(100);
     AtomicBoolean enableBacklight = new AtomicBoolean(false);
     final BrickletLCD128x64.TouchPositionListener touchPositionListener =
-            (pressure, x, y, age) -> {
-              try {
-                final TouchPositionData touchPositionData = new TouchPositionData(pressure, x, y, age);
-                final MqttMessage message = new MqttMessage();
-                message.setRetained(false);
-                message.setPayload(objectMapper.writeValueAsBytes(touchPositionData));
-                message.setQos(1);
-                mqttClient
-                        .publish(topicPrefix + "/touchPosition", message)
-                        .subscribe(msg -> {
-                        }, ex -> log.warn("Cannot send touch message", ex));
-              } catch (JsonProcessingException e) {
-                log.warn("Cannot create mqtt message", e);
-              }
-            };
+        (pressure, x, y, age) -> {
+          try {
+            final TouchPositionData touchPositionData = new TouchPositionData(pressure, x, y, age);
+            final MqttMessage message = new MqttMessage();
+            message.setRetained(false);
+            message.setPayload(objectMapper.writeValueAsBytes(touchPositionData));
+            message.setQos(1);
+            mqttClient
+                .publish(topicPrefix + "/touchPosition", message)
+                .subscribe(msg -> {}, ex -> log.warn("Cannot send touch message", ex));
+          } catch (JsonProcessingException e) {
+            log.warn("Cannot create mqtt message", e);
+          }
+        };
     bricklet.addTouchPositionListener(touchPositionListener);
     Runnable updateDisplayConfiguration =
-            () -> {
-              try {
-                final int contrast1 = contrast.get();
-                final int backlight1 = enableBacklight.get() ? backlight.get() : 0;
-                log.info("Set config " + contrast1 + ", " + backlight1);
-                bricklet.setDisplayConfiguration(contrast1, backlight1, false, true);
-              } catch (TimeoutException | NotConnectedException e) {
-                log.warn("Cannot update display settings", e);
-              }
-            };
+        () -> {
+          try {
+            final int contrast1 = contrast.get();
+            final int backlight1 = enableBacklight.get() ? backlight.get() : 0;
+            log.info("Set config " + contrast1 + ", " + backlight1);
+            bricklet.setDisplayConfiguration(contrast1, backlight1, false, true);
+          } catch (TinkerforgeException e) {
+            log.warn("Cannot update display settings", e);
+          }
+        };
     final Consumer<Disposable> backlightConsumer = new DisposableConsumer();
     mqttClient.registerTopic(
-            topicPrefix + "/backlight",
-            mqttMessage -> {
-              int value = Integer.valueOf(new String(mqttMessage.getMessage().getPayload()));
-              log.info("Set backlight to " + value);
-              backlight.set(value);
-              updateDisplayConfiguration.run();
-            },
-            backlightConsumer);
+        topicPrefix + "/backlight",
+        mqttMessage -> {
+          int value = Integer.valueOf(new String(mqttMessage.getMessage().getPayload()));
+          log.info("Set backlight to " + value);
+          backlight.set(value);
+          updateDisplayConfiguration.run();
+        },
+        backlightConsumer);
     final Consumer<Disposable> backlightEnableConsumer = new DisposableConsumer();
     mqttClient.registerTopic(
-            topicPrefix + "/enableBacklight",
-            mqttMessage -> {
-              boolean value = Boolean.parseBoolean(new String(mqttMessage.getMessage().getPayload()));
-              log.info("Set backlight to " + value);
-              enableBacklight.set(value);
-              updateDisplayConfiguration.run();
-            },
-            backlightEnableConsumer);
+        topicPrefix + "/enableBacklight",
+        mqttMessage -> {
+          boolean value = Boolean.parseBoolean(new String(mqttMessage.getMessage().getPayload()));
+          log.info("Set backlight to " + value);
+          enableBacklight.set(value);
+          updateDisplayConfiguration.run();
+        },
+        backlightEnableConsumer);
     final Consumer<Disposable> contrastConsumer = new DisposableConsumer();
     // log.info("Set backlight to " + value);
     mqttClient.registerTopic(
-            topicPrefix + "/contrast",
-            mqttMessage -> {
-              int value = Integer.valueOf(new String(mqttMessage.getMessage().getPayload()));
-              // log.info("Set backlight to " + value);
-              contrast.set(value);
-              updateDisplayConfiguration.run();
-            },
-            contrastConsumer);
+        topicPrefix + "/contrast",
+        mqttMessage -> {
+          int value = Integer.valueOf(new String(mqttMessage.getMessage().getPayload()));
+          // log.info("Set backlight to " + value);
+          contrast.set(value);
+          updateDisplayConfiguration.run();
+        },
+        contrastConsumer);
     final Consumer<Disposable> imageUpdateConsumer = new DisposableConsumer();
     mqttClient.registerTopic(
-            topicPrefix + "/image",
-            mqttMessage -> {
-              try {
-                final BufferedImage bufferedImage =
-                        ImageIO.read(
-                                new ByteArrayInputStream(
-                                        Base64.getDecoder().decode(mqttMessage.getMessage().getPayload())));
-                if (bufferedImage.getWidth() < 128) {
-                  log.warn("Image to narrow found: " + bufferedImage.getWidth() + " expected: 128)");
-                  return;
-                }
-                if (bufferedImage.getHeight() < 64) {
-                  log.warn("Image to short found: " + bufferedImage.getHeight() + " expected: 64)");
-                  return;
-                }
-                boolean[] pixels = new boolean[128 * 64];
-                for (int x = 0; x < 128; x++) {
-                  for (int y = 0; y < 64; y++) {
-                    final int rgb = bufferedImage.getRGB(x, y);
-                    int gray = (rgb >> 16 & 255) + (rgb >> 8 & 255) + (rgb & 255);
-                    pixels[x + y * 128] = gray < 127 * 4;
-                  }
-                }
-                bricklet.writePixels(0, 0, 127, 63, pixels);
-
-              } catch (Exception ex) {
-                log.warn("Cannot process image", ex);
+        topicPrefix + "/image",
+        mqttMessage -> {
+          try {
+            final BufferedImage bufferedImage =
+                ImageIO.read(
+                    new ByteArrayInputStream(
+                        Base64.getDecoder().decode(mqttMessage.getMessage().getPayload())));
+            if (bufferedImage.getWidth() < 128) {
+              log.warn("Image to narrow found: " + bufferedImage.getWidth() + " expected: 128)");
+              return;
+            }
+            if (bufferedImage.getHeight() < 64) {
+              log.warn("Image to short found: " + bufferedImage.getHeight() + " expected: 64)");
+              return;
+            }
+            boolean[] pixels = new boolean[128 * 64];
+            for (int x = 0; x < 128; x++) {
+              for (int y = 0; y < 64; y++) {
+                final int rgb = bufferedImage.getRGB(x, y);
+                int gray = (rgb >> 16 & 255) + (rgb >> 8 & 255) + (rgb & 255);
+                pixels[x + y * 128] = gray < 127 * 4;
               }
-            },
-            imageUpdateConsumer);
+            }
+            bricklet.writePixels(0, 0, 127, 63, pixels);
+
+          } catch (Exception ex) {
+            log.warn("Cannot process image", ex);
+          }
+        },
+        imageUpdateConsumer);
     ;
 
     bricklet.setTouchLEDConfig(BrickletLCD128x64.TOUCH_LED_CONFIG_SHOW_TOUCH);
@@ -163,9 +159,9 @@ public class LcdDeviceHandler implements DeviceHandler {
 
   @Value
   private static class TouchPositionData {
-    final int  pressure;
-    final int  x;
-    final int  y;
+    final int pressure;
+    final int x;
+    final int y;
     final long age;
   }
 }
