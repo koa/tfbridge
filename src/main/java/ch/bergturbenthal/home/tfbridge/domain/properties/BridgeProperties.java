@@ -11,6 +11,8 @@ import java.util.Map;
 @ConfigurationProperties("bridge")
 @Data
 public class BridgeProperties {
-  private TFEndpoint                    tfEndpoint = new TFEndpoint();
-  private MqttEndpoint                  mqtt       = new MqttEndpoint();
+  private TFEndpoint tfEndpoint = new TFEndpoint();
+  private MqttEndpoint mqtt = new MqttEndpoint();
+  private List<DmxLight> dmxLights;
+  private String discoveryPrefix="homeassistant";
 }

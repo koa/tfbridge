@@ -1,5 +1,12 @@
 bridge:
-
+  dmx-lights:
+    - id: "l1"
+      name: "1. OG, Büro, über Türe"
+      dmxBricklet: EJy
+      warmAddress: 0
+      coldAddress: 1
+      warmTemperature: 2700
+      coldTemperature: 7500
 sever.port: 8081
 
 spring:
@@ -11,8 +18,9 @@ spring:
             mqtt:
               - uri: tcp://localhost:1883
             tf:
-              #- uri: tcp://10.1.64.11:4223
-              - uri: tcp://10.192.64.12:4223
+              - uri: tcp://10.192.64.11:4223
+              - uri: tcp://10.192.64.15:4223
+              - uri: tcp://10.192.64.23:4223
     kubernetes:
       config:
         enable-api: false
