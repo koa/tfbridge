@@ -11,18 +11,16 @@ public class LightConfig {
   String platform;
   Device device;
   List<Availability> availability;
-  boolean brightness;
   int brightness_scale;
-  boolean color_temp;
+  String brightness_command_topic;
   String command_topic;
-  boolean effect;
   List<String> effect_list;
-  boolean optimistic;
   String schema;
   String name;
   String state_topic;
-  boolean white_value;
+  String   color_temp_command_topic;
   int max_mireds;
   int min_mireds;
   String unique_id;
+  boolean retain;
 }
