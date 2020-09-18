@@ -20,7 +20,6 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,9 +30,8 @@ import java.util.function.Consumer;
 @Slf4j
 public class DmxBrickletHandler implements DeviceHandler {
   private final MqttClient mqttClient;
-  private BridgeProperties properties;
-  private final ObjectWriter lightWriter;
-  private final ObjectReader commandReader;
+  private final BridgeProperties properties;
+  private final ObjectWriter configWriter;
 
   public DmxBrickletHandler(final MqttClient mqttClient, BridgeProperties properties) {
     this.mqttClient = mqttClient;
@@ -42,8 +40,7 @@ public class DmxBrickletHandler implements DeviceHandler {
         Jackson2ObjectMapperBuilder.json()
             .serializationInclusion(JsonInclude.Include.NON_NULL)
             .build();
-    lightWriter = objectMapper.writerFor(LightConfig.class);
-    commandReader = objectMapper.readerFor(LightCommand.class);
+    configWriter = objectMapper.writerFor(LightConfig.class);
   }
 
   @Override
@@ -120,24 +117,32 @@ public class DmxBrickletHandler implements DeviceHandler {
                 final String stateTopic = lightPrefix + "/state";
                 final String brightnessTopic = lightPrefix + "/brightness";
                 final String whiteValueTopic = lightPrefix + "/whiteValue";
+                final String brightnessStateTopic = lightPrefix + "/brightnessState";
+                final String whiteValueStateTopic = lightPrefix + "/whiteValueState";
                 final int warmMireds = kelvin2Mireds(light.getWarmTemperature());
                 final int coldMireds = kelvin2Mireds(light.getColdTemperature());
                 final String config =
-                    lightWriter.writeValueAsString(
+                    configWriter.writeValueAsString(
                         LightConfig.builder()
                             .platform("mqtt")
                             .schema("basic")
+                            .device(
+                                Device.builder()
+                                    .name(light.getName())
+                                    .identifiers(Collections.singletonList(light.getId()))
+                                    .build())
                             .unique_id(uid + "/" + light.getId())
                             .command_topic(stateTopic)
                             .name(light.getName())
                             .brightness_scale(255)
                             .brightness_command_topic(brightnessTopic)
+                            .brightness_state_topic(brightnessStateTopic)
                             .max_mireds(warmMireds)
                             .min_mireds(coldMireds)
                             .color_temp_command_topic(whiteValueTopic)
+                            .color_temp_state_topic(whiteValueStateTopic)
                             .retain(true)
                             .build());
-                log.info("Config: " + config);
                 mqttClient.send(
                     properties.getDiscoveryPrefix() + "/light/" + light.getId() + "/config",
                     MqttMessageUtil.createMessage(config, true));
@@ -146,12 +151,14 @@ public class DmxBrickletHandler implements DeviceHandler {
                 AtomicInteger whiteValue = new AtomicInteger(warmMireds + coldMireds / 2);
                 Runnable updateValue =
                     () -> {
+                      final int targetBrightness = currentBrightness.get();
+                      final int targetWhiteValue = whiteValue.get();
+                      final boolean targetStateOn = currentState.get();
                       updateConsumer.accept(
                           currentChannelValues.updateAndGet(
                               oldValues -> {
-                                final int brightness =
-                                    currentState.get() ? currentBrightness.get() : 0;
-                                final int currentWhiteValue = whiteValue.get();
+                                final int brightness = targetStateOn ? targetBrightness : 0;
+                                final int currentWhiteValue = targetWhiteValue;
                                 int warmPart = currentWhiteValue - coldMireds;
                                 int coldPart = warmMireds - currentWhiteValue;
                                 final int coldValue;
@@ -174,6 +181,12 @@ public class DmxBrickletHandler implements DeviceHandler {
                                 newValues.set(warmAddress, warmValue);
                                 return Collections.unmodifiableList(newValues);
                               }));
+                      mqttClient.send(
+                          brightnessStateTopic,
+                          MqttMessageUtil.createMessage(String.valueOf(targetBrightness), false));
+                      mqttClient.send(
+                          whiteValueStateTopic,
+                          MqttMessageUtil.createMessage(String.valueOf(targetWhiteValue), false));
                     };
                 mqttClient.registerTopic(
                     stateTopic,

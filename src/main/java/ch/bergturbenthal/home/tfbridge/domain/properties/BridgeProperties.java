@@ -13,6 +13,7 @@ import java.util.Map;
 public class BridgeProperties {
   private TFEndpoint tfEndpoint = new TFEndpoint();
   private MqttEndpoint mqtt = new MqttEndpoint();
+  private String discoveryPrefix = "homeassistant";
   private List<DmxLight> dmxLights;
-  private String discoveryPrefix="homeassistant";
+  private List<OnOffButtonInput> onOffButtons;
 }

@@ -132,7 +132,7 @@ public class PahoMqttClient implements MqttClient {
   @Override
   public Flux<MqttWireMessage> publish(String topic, MqttMessage message) {
     if (log.isInfoEnabled()) {
-      log.info(" <- " + topic + ": " + new String(message.getPayload()));
+      /// log.info(" <- " + topic + ": " + new String(message.getPayload()));
     }
     if (message.isRetained()) {
       retainedMessages.put(topic, message);

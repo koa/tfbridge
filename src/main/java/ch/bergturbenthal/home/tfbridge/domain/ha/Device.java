@@ -9,4 +9,9 @@ import java.util.List;
 @Builder
 public class Device {
   List<String> identifiers;
+  List<List<String>> connections;
+  String model;
+  String manufacturer;
+  String sw_version;
+  String name;
 }

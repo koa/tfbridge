@@ -48,9 +48,9 @@ public class MasterBrickHandler implements DeviceHandler {
     final BrickMaster.USBVoltageListener usbVoltageListener =
         voltage -> mqttClient.send(topicPrefix + "/usbVoltage", createValueMessage(voltage));
     brickMaster.addUSBVoltageListener(usbVoltageListener);
-    brickMaster.setStackCurrentCallbackPeriod(10000);
-    brickMaster.setStackVoltageCallbackPeriod(10000);
-    brickMaster.setUSBVoltageCallbackPeriod(10000);
+    brickMaster.setStackCurrentCallbackPeriod(60000);
+    brickMaster.setStackVoltageCallbackPeriod(60000);
+    brickMaster.setUSBVoltageCallbackPeriod(60000);
     AtomicInteger lastTemperatureValue = new AtomicInteger(Integer.MIN_VALUE);
     final ScheduledFuture<?> scheduledFuture =
         scheduledExecutorService.scheduleWithFixedDelay(
