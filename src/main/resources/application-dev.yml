@@ -7,6 +7,21 @@ bridge:
       coldAddress: 1
       warmTemperature: 2700
       coldTemperature: 7500
+    - id: "l2"
+      name: "EG, Büro, Licht Links"
+      dmxBricklet: DbE
+      warmAddress: 2
+      coldAddress: 3
+      warmTemperature: 2700
+      coldTemperature: 7500
+    - id: "l3"
+      name: "EG, Büro, Licht Rechts"
+      dmxBricklet: DbE
+      warmAddress: 0
+      coldAddress: 1
+      warmTemperature: 2700
+      coldTemperature: 7500
+
 sever.port: 8081
 
 spring:
@@ -17,18 +32,6 @@ spring:
           instances:
             mqtt:
               - uri: tcp://localhost:1883
-            tf:
-              - uri: tcp://10.192.64.11:4223
-              - uri: tcp://10.192.64.15:4223
-              - uri: tcp://10.192.64.23:4223
-    kubernetes:
-      config:
-        enable-api: false
-        enabled: false
-      secrets:
-        enabled: false
-      discovery:
-        enabled: false
 logging:
   level:
     org.eclipse.paho.client.mqttv3.internal.nls.logcat: debug

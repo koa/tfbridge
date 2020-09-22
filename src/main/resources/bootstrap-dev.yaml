@@ -1,0 +1,11 @@
+spring:
+  cloud:
+    kubernetes:
+      config:
+        enable-api: false
+        enabled: false
+      secrets:
+        enabled: false
+      discovery:
+        enabled: false
+      enabled: false

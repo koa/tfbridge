@@ -54,7 +54,7 @@ public class MultiplexTfClient implements TfClient {
       final URI endpointUri = endpoint.getUri();
       if (runningConnections.containsKey(endpointUri)) continue;
       final IPConnection ipConnection = new IPConnection();
-      final List<Disposable> registrations = Collections.synchronizedList(new ArrayList<>());
+      final Map<String, Disposable> registrations = Collections.synchronizedMap(new HashMap<>());
       ipConnection.addEnumerateListener(
           (uid,
               connectedUid,
@@ -66,7 +66,11 @@ public class MultiplexTfClient implements TfClient {
             final DeviceHandler foundDeviceHandler = deviceHandlers.get(deviceIdentifier);
             try {
               if (foundDeviceHandler != null) {
-                registrations.add(foundDeviceHandler.registerDevice(uid, ipConnection));
+                final Disposable disposable = registrations.remove(uid);
+                if (disposable != null) disposable.dispose();
+                final Disposable overridenDisposable =
+                    registrations.put(uid, foundDeviceHandler.registerDevice(uid, ipConnection));
+                if (overridenDisposable != null) overridenDisposable.dispose();
                 log.info(
                     "Bricklet "
                         + uid
@@ -82,7 +86,7 @@ public class MultiplexTfClient implements TfClient {
           disconnectReason -> {
             runningConnections.remove(endpointUri);
             log.info("disconnect " + endpoint.toString());
-            final Iterator<Disposable> iterator = registrations.iterator();
+            final Iterator<Disposable> iterator = registrations.values().iterator();
             while (iterator.hasNext()) {
               final Disposable next = iterator.next();
               next.dispose();
@@ -105,7 +109,7 @@ public class MultiplexTfClient implements TfClient {
         ipConnection.setTimeout(10);
         ipConnection.connect(hostName, port);
       } catch (TinkerforgeException ex) {
-        log.warn("Cannot connect to " + hostName + ":" + port, ex);
+        //log.warn("Cannot connect to " + hostName + ":" + port, ex);
       }
     }
   }

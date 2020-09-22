@@ -2,7 +2,6 @@ package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
-import ch.bergturbenthal.home.tfbridge.domain.ha.LightConfig;
 import ch.bergturbenthal.home.tfbridge.domain.ha.TriggerConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
@@ -18,9 +17,15 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
+import reactor.util.function.Tuples;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 @Slf4j
@@ -28,11 +33,16 @@ import java.util.function.Consumer;
 public class IO16V2DeviceHandler implements DeviceHandler {
   private final MqttClient mqttClient;
   private final BridgeProperties properties;
+  private ScheduledExecutorService executorService;
   private final ObjectWriter configWriter;
 
-  public IO16V2DeviceHandler(final MqttClient mqttClient, final BridgeProperties properties) {
+  public IO16V2DeviceHandler(
+      final MqttClient mqttClient,
+      final BridgeProperties properties,
+      ScheduledExecutorService executorService) {
     this.mqttClient = mqttClient;
     this.properties = properties;
+    this.executorService = executorService;
     final ObjectMapper objectMapper =
         Jackson2ObjectMapperBuilder.json()
             .serializationInclusion(JsonInclude.Include.NON_NULL)
@@ -56,8 +66,9 @@ public class IO16V2DeviceHandler implements DeviceHandler {
 
     Consumer<Boolean>[] buttonConsumers = new Consumer[16];
     Arrays.fill(buttonConsumers, (Consumer<Boolean>) (value) -> {});
-    bricklet.addInputValueListener(
-        (channel, changed, value) -> buttonConsumers[channel].accept(value));
+    final BrickletIO16V2.InputValueListener inputValueListener =
+        (channel, changed, value) -> buttonConsumers[channel].accept(!value);
+    bricklet.addInputValueListener(inputValueListener);
     properties.getOnOffButtons().stream()
         .filter(b -> b.getIo16Bricklet().equals(uid))
         .forEach(
@@ -73,20 +84,8 @@ public class IO16V2DeviceHandler implements DeviceHandler {
                 bricklet.setInputValueCallbackConfiguration(onAddress, 5, true);
                 bricklet.setConfiguration(offAddress, 'i', true);
                 bricklet.setInputValueCallbackConfiguration(offAddress, 5, true);
-                buttonConsumers[onAddress] =
-                    pressed -> {
-                      mqttClient.send(
-                          onButtonTopic,
-                          MqttMessageUtil.createMessage(String.valueOf(!pressed), false));
-                      log.info("On Buttton pressed: " + pressed);
-                    };
-                buttonConsumers[offAddress] =
-                    pressed -> {
-                      mqttClient.send(
-                          offButtonTopic,
-                          MqttMessageUtil.createMessage(String.valueOf(!pressed), false));
-                      log.info("Off Buttton pressed: " + pressed);
-                    };
+                buttonConsumers[onAddress] = new ButtonHandler(onButtonTopic);
+                buttonConsumers[offAddress] = new ButtonHandler(offButtonTopic);
 
                 final com.tinkerforge.Device.Identity identity = bricklet.getIdentity();
                 final Device device =
@@ -98,46 +97,31 @@ public class IO16V2DeviceHandler implements DeviceHandler {
                         .name(onOffButtonInput.getName())
                         .build();
                 Flux.just(
-                        TriggerConfig.builder()
-                            .automation_type("trigger")
-                            .topic(offButtonTopic)
-                            .device(device)
-                            .payload("true")
-                            .type("button_short_press")
-                            .subtype("turn_off")
-                            .qos(1)
-                            .platform("mqtt")
-                            .build(),
-                        TriggerConfig.builder()
-                            .automation_type("trigger")
-                            .topic(offButtonTopic)
-                            .device(device)
-                            .payload("false")
-                            .type("button_short_release")
-                            .subtype("turn_off")
-                            .qos(1)
-                            .platform("mqtt")
-                            .build(),
-                        TriggerConfig.builder()
-                            .automation_type("trigger")
-                            .topic(onButtonTopic)
-                            .device(device)
-                            .payload("true")
-                            .type("button_short_press")
-                            .subtype("turn_on")
-                            .qos(1)
-                            .platform("mqtt")
-                            .build(),
-                        TriggerConfig.builder()
-                            .automation_type("trigger")
-                            .topic(onButtonTopic)
-                            .device(device)
-                            .payload("false")
-                            .type("button_short_release")
-                            .subtype("turn_on")
-                            .qos(1)
-                            .platform("mqtt")
-                            .build())
+                        Tuples.of(onButtonTopic, "turn_on"), Tuples.of(offButtonTopic, "turn_off"))
+                    .flatMap(
+                        topic ->
+                            Flux.just(
+                                    "button_short_press",
+                                    "button_short_release",
+                                    "button_long_press",
+                                    "button_long_release")
+                                .map(event -> Tuples.of(topic, event)))
+                    .map(
+                        t -> {
+                          final String topic = t.getT1().getT1();
+                          final String subType = t.getT1().getT2();
+                          final String event = t.getT2();
+                          return TriggerConfig.builder()
+                              .automation_type("trigger")
+                              .topic(topic)
+                              .device(device)
+                              .payload(event)
+                              .type(event)
+                              .subtype(subType)
+                              .qos(1)
+                              .platform("mqtt")
+                              .build();
+                        })
                     .map(
                         c -> {
                           try {
@@ -164,11 +148,50 @@ public class IO16V2DeviceHandler implements DeviceHandler {
               }
             });
 
-    return () -> {};
+    return () -> bricklet.removeInputValueListener(inputValueListener);
   }
 
   private String strip(final String s) {
     // return s;
     return s.replaceAll("[^A-Za-z0-9]", "_");
+  }
+
+  private class ButtonHandler implements Consumer<Boolean> {
+    private final String buttonTopic;
+    private final AtomicReference<ScheduledFuture<?>> currentRunningSchedule =
+        new AtomicReference<>(null);
+    private final AtomicBoolean isLongPressing = new AtomicBoolean(false);
+
+    public ButtonHandler(final String buttonTopic) {
+      this.buttonTopic = buttonTopic;
+    }
+
+    @Override
+    public void accept(final Boolean pressed) {
+      log.info("pressed: " + pressed);
+      if (pressed) {
+        sendMessage("button_short_press");
+        isLongPressing.set(false);
+        final ScheduledFuture<?> schedule =
+            executorService.schedule(
+                () -> {
+                  sendMessage("button_long_press");
+                  isLongPressing.set(true);
+                },
+                500,
+                TimeUnit.MILLISECONDS);
+        final ScheduledFuture<?> runningFuture = currentRunningSchedule.getAndSet(schedule);
+        if (runningFuture != null && !runningFuture.isDone()) runningFuture.cancel(true);
+      } else {
+        final ScheduledFuture<?> future = currentRunningSchedule.get();
+        if (future != null && !future.isDone()) future.cancel(false);
+        sendMessage(isLongPressing.get() ? "button_long_release" : "button_short_release");
+      }
+    }
+
+    private void sendMessage(final String content) {
+      log.info("Send: " + content);
+      mqttClient.send(buttonTopic, MqttMessageUtil.createMessage(content, false));
+    }
   }
 }
