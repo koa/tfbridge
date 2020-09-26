@@ -2,7 +2,6 @@ package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
-import ch.bergturbenthal.home.tfbridge.domain.ha.LightCommand;
 import ch.bergturbenthal.home.tfbridge.domain.ha.LightConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
@@ -10,7 +9,6 @@ import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.tinkerforge.BrickletDMX;
 import com.tinkerforge.IPConnection;

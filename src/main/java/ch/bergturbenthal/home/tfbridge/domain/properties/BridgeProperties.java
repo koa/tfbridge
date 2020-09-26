@@ -16,4 +16,5 @@ public class BridgeProperties {
   private String discoveryPrefix = "homeassistant";
   private List<DmxLight> dmxLights;
   private List<OnOffButtonInput> onOffButtons;
+  private List<PirSensor> pirSensors;
 }

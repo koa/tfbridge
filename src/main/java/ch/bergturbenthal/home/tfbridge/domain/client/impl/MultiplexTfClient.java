@@ -64,10 +64,14 @@ public class MultiplexTfClient implements TfClient {
               deviceIdentifier,
               enumerationType) -> {
             final DeviceHandler foundDeviceHandler = deviceHandlers.get(deviceIdentifier);
+            final String hostName = endpointUri.getHost();
             try {
               if (foundDeviceHandler != null) {
                 final Disposable disposable = registrations.remove(uid);
-                if (disposable != null) disposable.dispose();
+                if (disposable != null) {
+                  log.info("Remove old registration on " + uid);
+                  disposable.dispose();
+                }
                 final Disposable overridenDisposable =
                     registrations.put(uid, foundDeviceHandler.registerDevice(uid, ipConnection));
                 if (overridenDisposable != null) overridenDisposable.dispose();
@@ -75,11 +79,13 @@ public class MultiplexTfClient implements TfClient {
                     "Bricklet "
                         + uid
                         + " registered by "
-                        + foundDeviceHandler.getClass().getSimpleName());
-              } else log.info("No handler for Bricklet " + uid + " found");
+                        + foundDeviceHandler.getClass().getSimpleName()
+                        + " (on "
+                        + hostName
+                        + ")");
+              } else log.info("No handler for Bricklet " + uid + " found (on " + hostName + ")");
             } catch (TinkerforgeException e) {
-              log.warn(
-                  "Cannot process registration on " + uid + " via " + endpointUri.getHost(), e);
+              log.warn("Cannot process registration on " + uid + " via " + hostName, e);
             }
           });
       ipConnection.addDisconnectedListener(
@@ -109,7 +115,7 @@ public class MultiplexTfClient implements TfClient {
         ipConnection.setTimeout(10);
         ipConnection.connect(hostName, port);
       } catch (TinkerforgeException ex) {
-        //log.warn("Cannot connect to " + hostName + ":" + port, ex);
+        // log.warn("Cannot connect to " + hostName + ":" + port, ex);
       }
     }
   }

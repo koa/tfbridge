@@ -1,26 +1,3 @@
-bridge:
-  dmx-lights:
-    - id: "l1"
-      name: "1. OG, Büro, über Türe"
-      dmxBricklet: EJy
-      warmAddress: 0
-      coldAddress: 1
-      warmTemperature: 2700
-      coldTemperature: 7500
-    - id: "l2"
-      name: "EG, Büro, Licht Links"
-      dmxBricklet: DbE
-      warmAddress: 2
-      coldAddress: 3
-      warmTemperature: 2700
-      coldTemperature: 7500
-    - id: "l3"
-      name: "EG, Büro, Licht Rechts"
-      dmxBricklet: DbE
-      warmAddress: 0
-      coldAddress: 1
-      warmTemperature: 2700
-      coldTemperature: 7500
 
 sever.port: 8081
 
@@ -34,4 +11,4 @@ spring:
               - uri: tcp://localhost:1883
 logging:
   level:
-    org.eclipse.paho.client.mqttv3.internal.nls.logcat: debug
+    org.eclipse.paho.client.mqttv3.internal.nls.logcat: info
