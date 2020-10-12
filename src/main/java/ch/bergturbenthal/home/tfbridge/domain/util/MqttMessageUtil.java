@@ -5,10 +5,13 @@ import com.tinkerforge.Device;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 
+import java.util.regex.Pattern;
+
 @Slf4j
 public class MqttMessageUtil {
-  public static final MqttMessage ONLINE_MESSAGE  = MqttMessageUtil.createMessage("online", true);
+  public static final MqttMessage ONLINE_MESSAGE = MqttMessageUtil.createMessage("online", true);
   public static final MqttMessage OFFLINE_MESSAGE = MqttMessageUtil.createMessage("offline", true);
+  private static final Pattern NON_ASCII_PATTERN = Pattern.compile("[^A-Za-z0-9]");
 
   public static MqttMessage createMessage(final String content, final boolean retained) {
     final MqttMessage message = new MqttMessage();
@@ -24,12 +27,16 @@ public class MqttMessageUtil {
   }
 
   public static void publishVersions(
-          final MqttClient mqttClient, final String channelPrefix, final Device.Identity identity) {
+      final MqttClient mqttClient, final String channelPrefix, final Device.Identity identity) {
     mqttClient.send(
-            channelPrefix + "/hardwareVersion",
-            MqttMessageUtil.createVersionMessage(identity.hardwareVersion));
+        channelPrefix + "/hardwareVersion",
+        MqttMessageUtil.createVersionMessage(identity.hardwareVersion));
     mqttClient.send(
-            channelPrefix + "/firmwareVersion",
-            MqttMessageUtil.createVersionMessage(identity.firmwareVersion));
+        channelPrefix + "/firmwareVersion",
+        MqttMessageUtil.createVersionMessage(identity.firmwareVersion));
+  }
+
+  public static String strip(final String s) {
+    return NON_ASCII_PATTERN.matcher(s).replaceAll("_");
   }
 }

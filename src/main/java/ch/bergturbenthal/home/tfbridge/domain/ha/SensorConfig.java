@@ -9,7 +9,8 @@ public class SensorConfig {
   String platform;
   Device device;
   String device_class;
-  int expire_after;
+  String availability_topic;
+  Integer expire_after;
   boolean force_update;
   String name;
   int qos;

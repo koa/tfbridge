@@ -33,7 +33,7 @@ import java.util.function.Consumer;
 public class IO16V2DeviceHandler implements DeviceHandler {
   private final MqttClient mqttClient;
   private final BridgeProperties properties;
-  private ScheduledExecutorService executorService;
+  private final ScheduledExecutorService executorService;
   private final ObjectWriter configWriter;
 
   public IO16V2DeviceHandler(
@@ -138,7 +138,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
                           mqttClient.send(
                               properties.getDiscoveryPrefix()
                                   + "/device_automation/"
-                                  + strip(onOffButtonInput.getId() + "-" + index)
+                                  + MqttMessageUtil.strip(onOffButtonInput.getId() + "-" + index)
                                   + "/config",
                               MqttMessageUtil.createMessage(config, true));
                         });
@@ -149,11 +149,6 @@ public class IO16V2DeviceHandler implements DeviceHandler {
             });
 
     return () -> bricklet.removeInputValueListener(inputValueListener);
-  }
-
-  private String strip(final String s) {
-    // return s;
-    return s.replaceAll("[^A-Za-z0-9]", "_");
   }
 
   private class ButtonHandler implements Consumer<Boolean> {
@@ -168,7 +163,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
 
     @Override
     public void accept(final Boolean pressed) {
-      log.info("pressed: " + pressed);
+      // log.info("pressed: " + pressed);
       if (pressed) {
         sendMessage("button_short_press");
         isLongPressing.set(false);
@@ -190,7 +185,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
     }
 
     private void sendMessage(final String content) {
-      log.info("Send: " + content);
+      // log.info("Send: " + content);
       mqttClient.send(buttonTopic, MqttMessageUtil.createMessage(content, false));
     }
   }

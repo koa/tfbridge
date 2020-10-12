@@ -17,4 +17,5 @@ public class BridgeProperties {
   private List<DmxLight> dmxLights;
   private List<OnOffButtonInput> onOffButtons;
   private List<PirSensor> pirSensors;
+  private List<TemperatureSensor> temperatureSensors;
 }

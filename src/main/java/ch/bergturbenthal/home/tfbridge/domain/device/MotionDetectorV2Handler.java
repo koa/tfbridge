@@ -103,12 +103,12 @@ public class MotionDetectorV2Handler implements DeviceHandler {
                             .state_topic(motionStateTopic)
                             .payload_on("on")
                             .payload_off("off")
-                            .availability(
+                            /*.availability(<
                                 Availability.builder()
                                     .topic(stateTopic)
                                     .payload_available("online")
                                     .payload_not_available("offline")
-                                    .build())
+                                    .build())*/
                             .device(
                                 Device.builder()
                                     .identifiers(Collections.singletonList(sensor.getId()))
@@ -117,7 +117,7 @@ public class MotionDetectorV2Handler implements DeviceHandler {
                                     .model("Motion Detector V2")
                                     .build())
                             .device_class("motion")
-                            .expire_after(60)
+                            .expire_after(3600*24)
                             .unique_id(sensor.getId())
                             .qos(1)
                             .build());
@@ -127,7 +127,8 @@ public class MotionDetectorV2Handler implements DeviceHandler {
                         + sensor.getId()
                         + "/config",
                     MqttMessageUtil.createMessage(config, true));
-              } catch (JsonProcessingException e) {
+                bricklet.setSensitivity(100);
+              } catch (JsonProcessingException | TinkerforgeException e) {
                 log.error("Cannot serialize config", e);
               }
             });
