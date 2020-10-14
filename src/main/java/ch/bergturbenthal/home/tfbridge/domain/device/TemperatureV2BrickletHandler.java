@@ -108,7 +108,7 @@ public class TemperatureV2BrickletHandler implements DeviceHandler {
     ;
     bricklet.addTemperatureListener(temperatureListener);
     bricklet.setTemperatureCallbackConfiguration(
-        Duration.ofSeconds(1).toMillis(), false, 'x', 0, 0);
+        Duration.ofMinutes(1).toMillis(), false, 'x', 0, 0);
     mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
     return () -> {
       mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
