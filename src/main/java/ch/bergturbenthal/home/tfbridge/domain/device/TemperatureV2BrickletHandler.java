@@ -3,7 +3,6 @@ package ch.bergturbenthal.home.tfbridge.domain.device;
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
 import ch.bergturbenthal.home.tfbridge.domain.ha.SensorConfig;
-import ch.bergturbenthal.home.tfbridge.domain.ha.TriggerConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -25,6 +24,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -50,7 +50,9 @@ public class TemperatureV2BrickletHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(final String uid,
+                                   final IPConnection connection,
+                                   final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletTemperatureV2 bricklet = new BrickletTemperatureV2(uid, connection);
     String topicPrefix = "BrickletTemperature/" + uid;

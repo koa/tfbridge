@@ -38,7 +38,9 @@ public class LcdDeviceHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(String uid, IPConnection connection)
+  public Disposable registerDevice(String uid,
+                                   IPConnection connection,
+                                   final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletLCD128x64 bricklet = new BrickletLCD128x64(uid, connection);
     String topicPrefix = "BrickletLCD128x64/" + uid;
@@ -71,6 +73,7 @@ public class LcdDeviceHandler implements DeviceHandler {
             bricklet.setDisplayConfiguration(contrast1, backlight1, false, true);
           } catch (TinkerforgeException e) {
             log.warn("Cannot update display settings", e);
+            errorConsumer.accept(e);
           }
         };
     final Consumer<Disposable> backlightConsumer = new DisposableConsumer();

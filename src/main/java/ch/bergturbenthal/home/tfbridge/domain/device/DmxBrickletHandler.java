@@ -47,7 +47,8 @@ public class DmxBrickletHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(
+      final String uid, final IPConnection connection, final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletDMX bricklet = new BrickletDMX(uid, connection);
 
@@ -70,6 +71,7 @@ public class DmxBrickletHandler implements DeviceHandler {
             bricklet.writeFrame(writeValues);
           } catch (TinkerforgeException e) {
             log.warn("Cannot write frame to dmx bus on " + uid, e);
+            errorConsumer.accept(e);
           }
         };
     mqttClient.registerTopic(

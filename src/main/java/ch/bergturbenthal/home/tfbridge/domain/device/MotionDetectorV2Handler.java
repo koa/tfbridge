@@ -1,10 +1,8 @@
 package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
-import ch.bergturbenthal.home.tfbridge.domain.ha.Availability;
 import ch.bergturbenthal.home.tfbridge.domain.ha.BinarySensorConfig;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
-import ch.bergturbenthal.home.tfbridge.domain.ha.LightConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
@@ -24,7 +22,6 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -50,7 +47,9 @@ public class MotionDetectorV2Handler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(final String uid,
+                                   final IPConnection connection,
+                                   final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletMotionDetectorV2 bricklet = new BrickletMotionDetectorV2(uid, connection);
     String topicPrefix = "BrickletMotionDetectorV2/" + uid;

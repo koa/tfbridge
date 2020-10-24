@@ -11,6 +11,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Service
 @Slf4j
@@ -27,7 +28,9 @@ public class MotionDetectorHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(final String uid,
+                                   final IPConnection connection,
+                                   final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletMotionDetector bricklet = new BrickletMotionDetector(uid, connection);
     String topicPrefix = "BrickletMotionDetector/" + uid;

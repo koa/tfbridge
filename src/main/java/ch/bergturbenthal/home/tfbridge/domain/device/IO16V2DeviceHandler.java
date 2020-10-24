@@ -56,7 +56,8 @@ public class IO16V2DeviceHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(
+      final String uid, final IPConnection connection, final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletIO16V2 bricklet = new BrickletIO16V2(uid, connection);
 
@@ -145,6 +146,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
 
               } catch (TinkerforgeException e) {
                 log.warn("Cannot configure device " + uid, e);
+                errorConsumer.accept(e);
               }
             });
 
@@ -185,7 +187,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
     }
 
     private void sendMessage(final String content) {
-      // log.info("Send: " + content);
+      // log.info("Send: " + buttonTopic + ";" + content);
       mqttClient.send(buttonTopic, MqttMessageUtil.createMessage(content, false));
     }
   }

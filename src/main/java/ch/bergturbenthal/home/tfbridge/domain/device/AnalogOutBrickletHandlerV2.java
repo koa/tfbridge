@@ -25,7 +25,9 @@ public class AnalogOutBrickletHandlerV2 implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(final String uid,
+                                   final IPConnection connection,
+                                   final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletAnalogOutV2 brickletAnalogOutV2 = new BrickletAnalogOutV2(uid, connection);
     String channelPrefix = "AnalogOutV2/" + uid;
@@ -45,6 +47,7 @@ public class AnalogOutBrickletHandlerV2 implements DeviceHandler {
             brickletAnalogOutV2.setOutputVoltage(mvValue);
           } catch (TinkerforgeException e) {
             log.warn("Cannot update value on analog out " + uid, e);
+            errorConsumer.accept(e);
           }
         },
         disposableConsumer);

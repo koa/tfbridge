@@ -12,6 +12,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Service
 @Slf4j
@@ -31,7 +32,8 @@ public class MasterBrickHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(
+      final String uid, final IPConnection connection, final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickMaster brickMaster = new BrickMaster(uid, connection);
     final String topicPrefix = "Master/" + uid;
@@ -76,6 +78,7 @@ public class MasterBrickHandler implements DeviceHandler {
                     });
               } catch (TinkerforgeException e) {
                 log.warn("Cannot take chip temperature from " + uid, e);
+                errorConsumer.accept(e);
               }
             },
             10,

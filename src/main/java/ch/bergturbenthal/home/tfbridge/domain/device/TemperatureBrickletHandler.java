@@ -11,6 +11,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.util.function.Consumer;
 
 @Service
 @Slf4j
@@ -27,7 +28,9 @@ public class TemperatureBrickletHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid, final IPConnection connection)
+  public Disposable registerDevice(final String uid,
+                                   final IPConnection connection,
+                                   final Consumer<Throwable> errorConsumer)
       throws TinkerforgeException {
     final BrickletTemperature bricklet = new BrickletTemperature(uid, connection);
     String topicPrefix = "BrickletTemperature/" + uid;
