@@ -55,7 +55,16 @@ public class MultiplexTfClient implements TfClient {
     final String mqttPrefix = bridgeProperties.getMqtt().getMqttPrefix();
     for (ServiceInstance endpoint : discoveryClient.getInstances(tfEndpoint.getService())) {
       final URI endpointUri = endpoint.getUri();
-      if (runningConnections.containsKey(endpointUri)) continue;
+      final IPConnection runningConnection = runningConnections.get(endpointUri);
+      if (runningConnection != null) {
+        try {
+          runningConnection.enumerate();
+          continue;
+        } catch (TinkerforgeException ex) {
+          log.warn("Error enumerate " + endpointUri.getHost(), ex);
+          runningConnections.remove(endpointUri);
+        }
+      }
       log.info("Connect to " + endpointUri.getHost());
       final IPConnection ipConnection = new IPConnection();
       final Map<String, Disposable> registrations = Collections.synchronizedMap(new HashMap<>());
@@ -86,6 +95,9 @@ public class MultiplexTfClient implements TfClient {
             final String hostName = endpointUri.getHost();
             try {
               if (foundDeviceHandler != null) {
+                if(registrations.containsKey(uid)){
+                  return;
+                }
                 final Disposable disposable = registrations.remove(uid);
                 if (disposable != null) {
                   log.info("Remove old registration on " + uid);

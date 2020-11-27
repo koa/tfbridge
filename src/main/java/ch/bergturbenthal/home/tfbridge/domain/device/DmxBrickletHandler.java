@@ -193,7 +193,7 @@ public class DmxBrickletHandler implements DeviceHandler {
                     message -> {
                       final byte[] payload = message.getMessage().getPayload();
                       final String state = new String(payload);
-                      log.info("Taken state: " + state);
+                      if (log.isDebugEnabled()) log.debug("Taken state: " + state);
                       currentState.set(state.equals("ON"));
                       updateValue.run();
                     },
@@ -204,7 +204,7 @@ public class DmxBrickletHandler implements DeviceHandler {
                     message -> {
                       final byte[] payload = message.getMessage().getPayload();
                       final String state = new String(payload);
-                      log.info("Taken brightness: " + state);
+                      if (log.isDebugEnabled()) log.debug("Taken brightness: " + state);
                       currentBrightness.set(Integer.parseInt(state));
                       updateValue.run();
                     },

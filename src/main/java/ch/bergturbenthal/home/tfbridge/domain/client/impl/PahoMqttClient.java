@@ -75,8 +75,8 @@ public class PahoMqttClient implements MqttClient {
             @Override
             public void messageArrived(final String s, final MqttMessage mqttMessage) {
               if (mqttMessage.isRetained()) retainedMessages.put(s, mqttMessage);
-              if (log.isInfoEnabled()) {
-                log.info(" -> " + s + ": " + new String(mqttMessage.getPayload()));
+              if (log.isDebugEnabled()) {
+                log.debug(" -> " + s + ": " + new String(mqttMessage.getPayload()));
               }
               final ch.bergturbenthal.home.tfbridge.domain.client.MqttClient.ReceivedMqttMessage
                   msg = new ImmutableReceivedMqttMessage(s, mqttMessage);
