@@ -29,3 +29,6 @@
 /.mvn/
 /src/main/resources/application.properties
 /application-dev.yml
+/src/main/resources/application-local.yaml
+*.versionsBackup
+/.run/TfbridgeApplication.run.xml

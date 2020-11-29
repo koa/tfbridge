@@ -107,6 +107,7 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <imageBuilder>gcr.io/buildpacks/builder:v1</imageBuilder>
                     <image>
                         <name>docker-snapshot.berg-turbenthal.ch/${project.artifactId}:${local.version}</name>
                     </image>
@@ -115,7 +116,8 @@
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
-                <!--<executions>
+                <!--
+                <executions>
                     <execution>
                         <phase>package</phase>
                         <goals>
@@ -130,11 +132,10 @@
                         <image>gcr.io/distroless/java:11</image>
                     </from>
                     <to>
-                        <image>koa1/tfbridge:${project.version}</image>
+                        <image>docker-snapshot.berg-turbenthal.ch/${project.artifactId}:${local.version}</image>
                     </to>
                 </configuration>
             </plugin>
         </plugins>
     </build>
-
 </project>
