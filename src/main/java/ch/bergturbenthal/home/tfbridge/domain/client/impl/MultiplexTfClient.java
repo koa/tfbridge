@@ -53,6 +53,8 @@ public class MultiplexTfClient implements TfClient {
   public void discover() {
     final TFEndpoint tfEndpoint = bridgeProperties.getTfEndpoint();
     final String mqttPrefix = bridgeProperties.getMqtt().getMqttPrefix();
+    log.info("Lookup for service " + tfEndpoint.getService());
+    discoveryClient.getServices().forEach(svc -> log.info("Found Service: " + svc));
     for (ServiceInstance endpoint : discoveryClient.getInstances(tfEndpoint.getService())) {
       final URI endpointUri = endpoint.getUri();
       final IPConnection runningConnection = runningConnections.get(endpointUri);
@@ -95,7 +97,7 @@ public class MultiplexTfClient implements TfClient {
             final String hostName = endpointUri.getHost();
             try {
               if (foundDeviceHandler != null) {
-                if(registrations.containsKey(uid)){
+                if (registrations.containsKey(uid)) {
                   return;
                 }
                 final Disposable disposable = registrations.remove(uid);

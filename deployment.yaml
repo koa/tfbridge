@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tfbridge
+  name: tfbridge
+  namespace: prod
+spec:
+  selector:
+    matchLabels:
+      app: tfbridge
+  template:
+    metadata:
+      labels:
+        app: tfbridge
+    spec:
+      containers:
+        - name: tfbridge
+          image: docker.io/koa1/tfbridge:0.0.1-SNAPSHOT
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          args:
+            - tfbridge.jar
+            #- --debug
+          env:
+            - name: SPRING_CLOUD_KUBERNETES_RELOAD_STRATEGY
+              value: refresh
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Xmx256m"
+          readinessProbe:
+            httpGet:
+              port: 9080
+              path: actuator/health
+            initialDelaySeconds: 120
+            periodSeconds: 2
+            successThreshold: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              port: 9080
+              path: actuator/health
+            periodSeconds: 5
+            failureThreshold: 3
+            initialDelaySeconds: 120
+          ports:
+            - containerPort: 8080
+              name: default
+            - containerPort: 9080
+              name: actuator
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tfbridge
+  namespace: prod
+data:
+  tfbridge.yaml: |-
+    server:
+      port: 8080
+    management:
+      server:
+        port: 9080
+      endpoint:
+        health:
+          show-details: always
+      endpoints:
+        web:
+          exposure:
+            include: "*"
+    bridge:
+      bricklets:
+        BmS:
+          name: Keller Licht 1
+        Bom:
+          name: Keller Licht 2
+        BmN:
+          name: Keller Licht 3
+        BnF:
+          name: Keller Licht 4
+        H7C:
+          name: Test LCD
+        t2Y:
+          name: Test Temp
+        wre:
+          name: Test Motion detector v1
+        HA5:
+          name: Keller Serverraum
+        EJy:
+          name: DMX Bricklet test
+          dmxChannels:
+            - Stripe 1 Warm
+            - Stripe 1 Cold
+      mqtt:
+        service: mosquitto-mosquitto
+    spring:
+      cloud:
+        discovery:
+          client:
+            simple:
+              instances:
+                tf:
+                #- uri: tcp://10.192.64.80:4223
+                - uri: tcp://10.192.64.11:4223
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: prod
+  name: spring-boot
+rules:
+  - apiGroups: [ "" ] # "" indicates the core API group
+    resources: [ "pods","configmaps", "endpoints","services" ]
+    verbs: [ "get", "watch", "list" ]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: service-account-spring-boot
+  namespace: prod
+subjects:
+  - kind: ServiceAccount
+    name: default
+roleRef:
+  kind: Role
+  name: spring-boot
+  apiGroup: rbac.authorization.k8s.io

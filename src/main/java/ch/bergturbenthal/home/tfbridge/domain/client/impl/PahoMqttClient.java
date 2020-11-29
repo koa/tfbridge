@@ -7,6 +7,7 @@ import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.internal.wire.MqttWireMessage;
+import org.eclipse.paho.client.mqttv3.persist.MqttDefaultFilePersistence;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
@@ -52,6 +53,7 @@ public class PahoMqttClient implements MqttClient {
 
   @Scheduled(fixedDelay = 60 * 1000, initialDelay = 10 * 1000)
   public void discover() throws MqttException {
+    final String clientId = MqttAsyncClient.generateClientId();
     // log.info("Discover");
     final MqttEndpoint mqtt = properties.getMqtt();
     final String service = mqtt.getService();
@@ -63,14 +65,18 @@ public class PahoMqttClient implements MqttClient {
       // skip already running clients
       if (runningClients.containsKey(inetSocketAddress)) continue;
       String brokerAddress = "tcp://" + hostAddress + ":" + port;
-      final MqttAsyncClient client = new MqttAsyncClient(brokerAddress, mqtt.getClientId());
+      final MqttDefaultFilePersistence persistence =
+              new MqttDefaultFilePersistence(System.getProperty("java.io.tmpdir"));
+      final MqttAsyncClient client = new MqttAsyncClient(brokerAddress, clientId, persistence);
+
       client.setCallback(
-          new MqttCallback() {
-            @Override
-            public void connectionLost(final Throwable throwable) {
-              log.warn("Connection to " + hostAddress + " lost", throwable);
-              runningClients.remove(inetSocketAddress, client);
-            }
+              new MqttCallback() {
+                @Override
+                public void connectionLost(final Throwable throwable) {
+                  log.info("Found Service: " + serviceInstance);
+                  log.warn("Connection to " + hostAddress + ":" + port + " lost", throwable);
+                  runningClients.remove(inetSocketAddress, client);
+                }
 
             @Override
             public void messageArrived(final String s, final MqttMessage mqttMessage) {
@@ -91,17 +97,19 @@ public class PahoMqttClient implements MqttClient {
             @Override
             public void deliveryComplete(final IMqttDeliveryToken iMqttDeliveryToken) {}
           });
+      final MqttConnectOptions options = new MqttConnectOptions();
       client.connect(
-          null,
-          new IMqttActionListener() {
-            @Override
-            public void onSuccess(final IMqttToken asyncActionToken) {
-              // log.info("Connected: " + client.isConnected());
-              for (Map.Entry<String, MqttMessage> entry : retainedMessages.entrySet()) {
-                try {
-                  // log.info("Deliver retained message on topic " + entry.getKey());
-                  client.publish(entry.getKey(), entry.getValue());
-                } catch (MqttException e) {
+              options,
+              null,
+              new IMqttActionListener() {
+                @Override
+                public void onSuccess(final IMqttToken asyncActionToken) {
+                  // log.info("Connected: " + client.isConnected());
+                  for (Map.Entry<String, MqttMessage> entry : retainedMessages.entrySet()) {
+                    try {
+                      // log.info("Deliver retained message on topic " + entry.getKey());
+                      client.publish(entry.getKey(), entry.getValue());
+                    } catch (MqttException e) {
                   log.warn("Cannot deliver retained message to " + hostAddress);
                 }
               }
