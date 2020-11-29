@@ -105,6 +105,7 @@ public class DmxBrickletHandler implements DeviceHandler {
         channelRegistrationConsumer);
     bricklet.setDMXMode(BrickletDMX.DMX_MODE_MASTER);
     bricklet.setCommunicationLEDConfig(BrickletDMX.COMMUNICATION_LED_CONFIG_SHOW_COMMUNICATION);
+    bricklet.setFrameCallbackConfig(false, false, false, false);
     bricklet.setFrameDuration(0);
     final Map<String, DisposableConsumer> lightConfigurationConsumers = new HashMap<>();
     properties.getDmxLights().stream()

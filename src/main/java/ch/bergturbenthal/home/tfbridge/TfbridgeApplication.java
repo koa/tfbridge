@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 @EnableConfigurationProperties
-@SpringBootApplication
+@SpringBootApplication(proxyBeanMethods = false)
 @ComponentScan(
         basePackageClasses = {BridgeProperties.class, MultiplexTfClient.class, DeviceHandler.class})
 @Import(SimpleDiscoveryClientAutoConfiguration.class)
