@@ -22,12 +22,11 @@ import reactor.util.retry.Retry;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -36,17 +35,22 @@ import java.util.stream.Collectors;
 @Component
 @RefreshScope
 public class PahoMqttClient implements MqttClient {
-  private static final Pattern SPLIT_PATTERN = Pattern.compile(Pattern.quote("/"));
-  private final Map<String, RegisteredListeners> registeredSinks = new ConcurrentHashMap<>();
-  private final Map<InetSocketAddress, MqttAsyncClient> runningClients = new ConcurrentHashMap<>();
-  private final Map<String, MqttMessage> retainedMessages = new ConcurrentHashMap<>();
-  private final BridgeProperties properties;
-  private DiscoveryClient discoveryClient;
+  private static final Pattern                                 SPLIT_PATTERN    = Pattern.compile(Pattern.quote("/"));
+  private final        Map<String, RegisteredListeners>        registeredSinks  = new ConcurrentHashMap<>();
+  private final        Map<InetSocketAddress, MqttAsyncClient> runningClients   = new ConcurrentHashMap<>();
+  private final        Map<String, MqttMessage>                retainedMessages = new ConcurrentHashMap<>();
+  private final        BridgeProperties                        properties;
+  private final        ScheduledExecutorService                executorService;
+  private              DiscoveryClient                         discoveryClient;
 
-  public PahoMqttClient(final BridgeProperties properties, DiscoveryClient discoveryClient)
-      throws MqttException {
+  public PahoMqttClient(
+          final BridgeProperties properties,
+          DiscoveryClient discoveryClient,
+          ScheduledExecutorService executorService)
+          throws MqttException {
     this.properties = properties;
     this.discoveryClient = discoveryClient;
+    this.executorService = executorService;
 
     discover();
   }
@@ -78,26 +82,28 @@ public class PahoMqttClient implements MqttClient {
                   runningClients.remove(inetSocketAddress, client);
                 }
 
-            @Override
-            public void messageArrived(final String s, final MqttMessage mqttMessage) {
-              if (mqttMessage.isRetained()) retainedMessages.put(s, mqttMessage);
-              if (log.isDebugEnabled()) {
-                log.debug(" -> " + s + ": " + new String(mqttMessage.getPayload()));
-              }
-              final ch.bergturbenthal.home.tfbridge.domain.client.MqttClient.ReceivedMqttMessage
-                  msg = new ImmutableReceivedMqttMessage(s, mqttMessage);
-              registeredSinks.values().stream()
-                  .filter(listener -> listener.getMatchingTopic().matcher(s).matches())
-                  .flatMap(l -> l.getListeners().stream())
-                  .collect(Collectors.toList())
-                  .forEach(sink -> sink.next(msg));
-              // log.info("-------------------------------------------------------");
-            }
+                @Override
+                public void messageArrived(final String s, final MqttMessage mqttMessage) {
+                  if (mqttMessage.isRetained()) retainedMessages.put(s, mqttMessage);
+                  if (log.isDebugEnabled()) {
+                    log.debug(" -> " + s + ": " + new String(mqttMessage.getPayload()));
+                  }
+                  final ch.bergturbenthal.home.tfbridge.domain.client.MqttClient.ReceivedMqttMessage
+                          msg = new ImmutableReceivedMqttMessage(s, mqttMessage);
+                  registeredSinks.values().stream()
+                                 .filter(listener -> listener.getMatchingTopic().matcher(s).matches())
+                                 .flatMap(l -> l.getListeners().stream())
+                                 .collect(Collectors.toList())
+                                 .forEach(sink -> sink.next(msg));
+                  // log.info("-------------------------------------------------------");
+                }
 
-            @Override
-            public void deliveryComplete(final IMqttDeliveryToken iMqttDeliveryToken) {}
-          });
+                @Override
+                public void deliveryComplete(final IMqttDeliveryToken iMqttDeliveryToken) {}
+              });
       final MqttConnectOptions options = new MqttConnectOptions();
+
+      options.setMaxInflight(100);
       client.connect(
               options,
               null,
@@ -105,24 +111,63 @@ public class PahoMqttClient implements MqttClient {
                 @Override
                 public void onSuccess(final IMqttToken asyncActionToken) {
                   // log.info("Connected: " + client.isConnected());
-                  for (Map.Entry<String, MqttMessage> entry : retainedMessages.entrySet()) {
-                    try {
-                      // log.info("Deliver retained message on topic " + entry.getKey());
-                      client.publish(entry.getKey(), entry.getValue());
-                    } catch (MqttException e) {
-                  log.warn("Cannot deliver retained message to " + hostAddress);
-                }
-              }
-              final String[] topics = registeredSinks.keySet().toArray(new String[0]);
-              subscribeTopics(topics, client);
-            }
 
-            @Override
-            public void onFailure(final IMqttToken asyncActionToken, final Throwable exception) {
-              runningClients.remove(inetSocketAddress, client);
-              log.warn("Cannot connect to " + hostAddress, exception);
-            }
-          });
+                  sendRetainedMessages(new ConcurrentLinkedDeque<>(retainedMessages.keySet()));
+                  final String[] topics = registeredSinks.keySet().toArray(new String[0]);
+                  subscribeTopics(topics, client);
+                }
+
+                private void sendRetainedMessages(final Queue<String> pendingRetainedMessages) {
+
+                  while (true) {
+                    if (!client.isConnected()) {
+                      log.info("Client to " + hostAddress + " is disconnected, cancel");
+                      return;
+                    }
+                    final String foundTopic = pendingRetainedMessages.poll();
+                    if (foundTopic == null) {
+                      log.info("All retained messages sent");
+                      return;
+                    }
+                    final MqttMessage mqttMessage = retainedMessages.get(foundTopic);
+                    if (mqttMessage == null) continue;
+                    // log.info("Deliver retained message on topic " + foundTopic);
+                    try {
+                      client
+                              .publish(foundTopic, mqttMessage)
+                              .setActionCallback(
+                                      new IMqttActionListener() {
+                                        @Override
+                                        public void onSuccess(final IMqttToken asyncActionToken) {
+                                          sendRetainedMessages(pendingRetainedMessages);
+                                        }
+
+                                        @Override
+                                        public void onFailure(
+                                                final IMqttToken asyncActionToken, final Throwable exception) {
+                                          pendingRetainedMessages.add(foundTopic);
+                                          log.warn(
+                                                  "Cannot deliver retained message to " + hostAddress, exception);
+
+                                          sendRetainedMessages(pendingRetainedMessages);
+                                        }
+                                      });
+                    } catch (MqttException e) {
+                      pendingRetainedMessages.add(foundTopic);
+                      log.warn("Cannot deliver retained message to " + hostAddress, e);
+                      executorService.schedule(
+                              () -> sendRetainedMessages(pendingRetainedMessages), 10, TimeUnit.SECONDS);
+                    }
+                    break;
+                  }
+                }
+
+                @Override
+                public void onFailure(final IMqttToken asyncActionToken, final Throwable exception) {
+                  runningClients.remove(inetSocketAddress, client);
+                  log.warn("Cannot connect to " + hostAddress, exception);
+                }
+              });
       runningClients.put(inetSocketAddress, client);
     }
   }
@@ -243,7 +288,8 @@ public class PahoMqttClient implements MqttClient {
         .count()
         .subscribe(
             count -> {
-              if (count == 0) log.warn("No target for message " + message + " to " + topic);
+              if (count == 0 && !message.isRetained())
+                log.warn("No target for message " + message + " to " + topic);
             },
             ex -> {
               log.warn("Cannot publish message " + message + " to " + topic);

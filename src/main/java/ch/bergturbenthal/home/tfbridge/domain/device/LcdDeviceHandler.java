@@ -5,7 +5,9 @@ import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tinkerforge.*;
+import com.tinkerforge.BrickletLCD128x64;
+import com.tinkerforge.IPConnection;
+import com.tinkerforge.TinkerforgeException;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
@@ -38,10 +40,9 @@ public class LcdDeviceHandler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(String uid,
-                                   IPConnection connection,
-                                   final Consumer<Throwable> errorConsumer)
-      throws TinkerforgeException {
+  public Disposable registerDevice(
+          String uid, IPConnection connection, final Consumer<Throwable> errorConsumer)
+          throws TinkerforgeException {
     final BrickletLCD128x64 bricklet = new BrickletLCD128x64(uid, connection);
     String topicPrefix = "BrickletLCD128x64/" + uid;
     MqttMessageUtil.publishVersions(mqttClient, topicPrefix, bricklet.getIdentity());
@@ -49,8 +50,8 @@ public class LcdDeviceHandler implements DeviceHandler {
     final AtomicInteger backlight = new AtomicInteger(100);
     AtomicBoolean enableBacklight = new AtomicBoolean(false);
     final BrickletLCD128x64.TouchPositionListener touchPositionListener =
-        (pressure, x, y, age) -> {
-          try {
+            (pressure, x, y, age) -> {
+              try {
             final TouchPositionData touchPositionData = new TouchPositionData(pressure, x, y, age);
             final MqttMessage message = new MqttMessage();
             message.setRetained(false);
@@ -80,7 +81,7 @@ public class LcdDeviceHandler implements DeviceHandler {
     mqttClient.registerTopic(
         topicPrefix + "/backlight",
         mqttMessage -> {
-          int value = Integer.valueOf(new String(mqttMessage.getMessage().getPayload()));
+          int value = Integer.parseInt(new String(mqttMessage.getMessage().getPayload()));
           log.info("Set backlight to " + value);
           backlight.set(value);
           updateDisplayConfiguration.run();
@@ -101,7 +102,7 @@ public class LcdDeviceHandler implements DeviceHandler {
     mqttClient.registerTopic(
         topicPrefix + "/contrast",
         mqttMessage -> {
-          int value = Integer.valueOf(new String(mqttMessage.getMessage().getPayload()));
+          int value = Integer.parseInt(new String(mqttMessage.getMessage().getPayload()));
           // log.info("Set backlight to " + value);
           contrast.set(value);
           updateDisplayConfiguration.run();
@@ -149,6 +150,7 @@ public class LcdDeviceHandler implements DeviceHandler {
     // bricklet.setDisplayConfiguration(14, 40, false, true);
     final String stateTopic = topicPrefix + "/state";
     mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
+    updateDisplayConfiguration.run();
 
     return () -> {
       mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
@@ -162,9 +164,9 @@ public class LcdDeviceHandler implements DeviceHandler {
 
   @Value
   private static class TouchPositionData {
-    final int pressure;
-    final int x;
-    final int y;
-    final long age;
+    int  pressure;
+    int  x;
+    int  y;
+    long age;
   }
 }
