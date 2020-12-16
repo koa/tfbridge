@@ -4,6 +4,8 @@ import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
 import ch.bergturbenthal.home.tfbridge.domain.ha.LightConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
+import ch.bergturbenthal.home.tfbridge.domain.properties.SimpleDmxLight;
+import ch.bergturbenthal.home.tfbridge.domain.properties.WarmColdDmxLight;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -108,123 +110,185 @@ public class DmxBrickletHandler implements DeviceHandler {
     bricklet.setFrameCallbackConfig(false, false, false, false);
     bricklet.setFrameDuration(0);
     final Map<String, DisposableConsumer> lightConfigurationConsumers = new HashMap<>();
-    properties.getDmxLights().stream()
-        .filter(l -> l.getDmxBricklet().equals(uid))
-        .forEach(
-            light -> {
-              try {
-                final String lightPrefix = brickletPrefix + "/light/" + light.getId();
 
-                final String stateTopic = lightPrefix + "/state";
-                final String brightnessTopic = lightPrefix + "/brightness";
-                final String whiteValueTopic = lightPrefix + "/whiteValue";
-                final String brightnessStateTopic = lightPrefix + "/brightnessState";
-                final String whiteValueStateTopic = lightPrefix + "/whiteValueState";
-                final int warmMireds = kelvin2Mireds(light.getWarmTemperature());
-                final int coldMireds = kelvin2Mireds(light.getColdTemperature());
-                final String config =
-                    configWriter.writeValueAsString(
-                        LightConfig.builder()
-                            .platform("mqtt")
-                            .schema("basic")
-                            .device(
-                                Device.builder()
-                                    .name(light.getName())
-                                    .identifiers(Collections.singletonList(light.getId()))
-                                    .build())
-                            .unique_id(uid + "/" + light.getId())
-                            .command_topic(stateTopic)
-                            .name(light.getName())
-                            .brightness_scale(255)
-                            .brightness_command_topic(brightnessTopic)
-                            .brightness_state_topic(brightnessStateTopic)
-                            .max_mireds(warmMireds)
-                            .min_mireds(coldMireds)
-                            .color_temp_command_topic(whiteValueTopic)
-                            .color_temp_state_topic(whiteValueStateTopic)
-                            .retain(true)
-                            .build());
-                mqttClient.send(
-                    properties.getDiscoveryPrefix() + "/light/" + light.getId() + "/config",
-                    MqttMessageUtil.createMessage(config, true));
-                AtomicInteger currentBrightness = new AtomicInteger(0);
-                AtomicBoolean currentState = new AtomicBoolean(false);
-                AtomicInteger whiteValue = new AtomicInteger(warmMireds + coldMireds / 2);
-                Runnable updateValue =
-                    () -> {
-                      final int targetBrightness = currentBrightness.get();
-                      final int targetWhiteValue = whiteValue.get();
-                      final boolean targetStateOn = currentState.get();
-                      updateConsumer.accept(
-                          currentChannelValues.updateAndGet(
-                              oldValues -> {
-                                final int brightness = targetStateOn ? targetBrightness : 0;
-                                final int currentWhiteValue = targetWhiteValue;
-                                int warmPart = currentWhiteValue - coldMireds;
-                                int coldPart = warmMireds - currentWhiteValue;
-                                final int coldValue;
-                                final int warmValue;
-                                if (coldPart > warmPart) {
-                                  coldValue = brightness;
-                                  warmValue = brightness * warmPart / coldPart;
-                                } else {
-                                  warmValue = brightness;
-                                  coldValue = brightness * coldPart / warmPart;
-                                }
-                                final int coldAddress = light.getColdAddress();
-                                final int warmAddress = light.getWarmAddress();
-                                int maxAddress = Math.max(coldAddress, warmAddress);
-                                final ArrayList<Integer> newValues = new ArrayList<>(oldValues);
-                                while (newValues.size() <= maxAddress) {
-                                  newValues.add(0);
-                                }
-                                newValues.set(coldAddress, coldValue);
-                                newValues.set(warmAddress, warmValue);
-                                return Collections.unmodifiableList(newValues);
-                              }));
-                      mqttClient.send(
-                          brightnessStateTopic,
-                          MqttMessageUtil.createMessage(String.valueOf(targetBrightness), false));
-                      mqttClient.send(
-                          whiteValueStateTopic,
-                          MqttMessageUtil.createMessage(String.valueOf(targetWhiteValue), false));
-                    };
-                mqttClient.registerTopic(
-                    stateTopic,
-                    message -> {
-                      final byte[] payload = message.getMessage().getPayload();
-                      final String state = new String(payload);
-                      if (log.isDebugEnabled()) log.debug("Taken state: " + state);
-                      currentState.set(state.equals("ON"));
-                      updateValue.run();
-                    },
-                    lightConfigurationConsumers.computeIfAbsent(
-                        light.getId() + "-state", key -> new DisposableConsumer()));
-                mqttClient.registerTopic(
-                    brightnessTopic,
-                    message -> {
-                      final byte[] payload = message.getMessage().getPayload();
-                      final String state = new String(payload);
-                      if (log.isDebugEnabled()) log.debug("Taken brightness: " + state);
-                      currentBrightness.set(Integer.parseInt(state));
-                      updateValue.run();
-                    },
-                    lightConfigurationConsumers.computeIfAbsent(
-                        light.getId() + "-brightness", key -> new DisposableConsumer()));
-                mqttClient.registerTopic(
-                    whiteValueTopic,
-                    message -> {
-                      final byte[] payload = message.getMessage().getPayload();
-                      final String state = new String(payload);
-                      whiteValue.set(Integer.parseInt(state));
-                      updateValue.run();
-                    },
-                    lightConfigurationConsumers.computeIfAbsent(
-                        light.getId() + "-white-value", key -> new DisposableConsumer()));
-              } catch (JsonProcessingException e) {
-                log.error("Cannot process json", e);
-              }
-            });
+    final List<SimpleDmxLight> simpleDmxLights = properties.getSimpleDmxLights();
+    if (simpleDmxLights != null)
+      simpleDmxLights.stream()
+                     .filter(l -> l.getDmxBricklet().equals(uid))
+                     .forEach(
+                             light -> {
+                               final String lightPrefix = brickletPrefix + "/light/" + light.getId();
+                               final String stateTopic = lightPrefix + "/state";
+                               final String brightnessTopic = lightPrefix + "/brightness";
+                               final String brightnessStateTopic = lightPrefix + "/brightnessState";
+
+                               try {
+                                 final String config =
+                                         configWriter.writeValueAsString(
+                                                 LightConfig.builder()
+                                                            .platform("mqtt")
+                                                            .schema("basic")
+                                                            .device(
+                                                                    Device.builder()
+                                                                          .name(light.getName())
+                                                                          .identifiers(Collections.singletonList(light.getId()))
+                                                                          .build())
+                                                            .unique_id(uid + "/" + light.getId())
+                                                            .command_topic(stateTopic)
+                                                            .name(light.getName())
+                                                            .brightness_scale(255)
+                                                            .brightness_command_topic(brightnessTopic)
+                                                            .brightness_state_topic(brightnessStateTopic)
+                                                            .retain(true)
+                                                            .build());
+                                 mqttClient.send(
+                                         properties.getDiscoveryPrefix() + "/light/" + light.getId() + "/config",
+                                         MqttMessageUtil.createMessage(config, true));
+                                 AtomicInteger currentBrightness = new AtomicInteger(0);
+                                 AtomicBoolean currentState = new AtomicBoolean(false);
+                                 Runnable updateValue =
+                                         () -> {
+                                           final int targetBrightness = currentBrightness.get();
+                                           final boolean targetStateOn = currentState.get();
+                                           updateConsumer.accept(
+                                                   currentChannelValues.updateAndGet(
+                                                           oldValues -> {
+                                                             final int brightness = targetStateOn ? targetBrightness : 0;
+                                                             final int address = light.getAddress();
+                                                             final ArrayList<Integer> newValues = new ArrayList<>(
+                                                                     oldValues);
+                                                             while (newValues.size() <= address) {
+                                                               newValues.add(0);
+                                                             }
+                                                             newValues.set(address, brightness);
+                                                             return Collections.unmodifiableList(newValues);
+                                                           }));
+                                           mqttClient.send(
+                                                   brightnessStateTopic,
+                                                   MqttMessageUtil.createMessage(String.valueOf(targetBrightness),
+                                                                                 false));
+                                         };
+                                 registerLight(
+                                         lightConfigurationConsumers,
+                                         stateTopic,
+                                         brightnessTopic,
+                                         currentBrightness,
+                                         currentState,
+                                         updateValue,
+                                         light.getId());
+                               } catch (JsonProcessingException e) {
+                                 log.error("Cannot process json", e);
+                               }
+                             });
+
+    final List<WarmColdDmxLight> warmColdDmxLights = properties.getWarmColdDmxLights();
+    if (warmColdDmxLights != null)
+      warmColdDmxLights.stream()
+                       .filter(l -> l.getDmxBricklet().equals(uid))
+                       .forEach(
+                               light -> {
+                                 try {
+                                   final String lightPrefix = brickletPrefix + "/light/" + light.getId();
+
+                                   final String stateTopic = lightPrefix + "/state";
+                                   final String brightnessTopic = lightPrefix + "/brightness";
+                                   final String whiteValueTopic = lightPrefix + "/whiteValue";
+                                   final String brightnessStateTopic = lightPrefix + "/brightnessState";
+                                   final String whiteValueStateTopic = lightPrefix + "/whiteValueState";
+                                   final int warmMireds = kelvin2Mireds(light.getWarmTemperature());
+                                   final int coldMireds = kelvin2Mireds(light.getColdTemperature());
+                                   final String config =
+                                           configWriter.writeValueAsString(
+                                                   LightConfig.builder()
+                                                              .platform("mqtt")
+                                                              .schema("basic")
+                                                              .device(
+                                                                      Device.builder()
+                                                                            .name(light.getName())
+                                                                            .identifiers(Collections.singletonList(light.getId()))
+                                                                            .build())
+                                                              .unique_id(uid + "/" + light.getId())
+                                                              .command_topic(stateTopic)
+                                                              .name(light.getName())
+                                                              .brightness_scale(255)
+                                                              .brightness_command_topic(brightnessTopic)
+                                                              .brightness_state_topic(brightnessStateTopic)
+                                                              .max_mireds(warmMireds)
+                                                              .min_mireds(coldMireds)
+                                                              .color_temp_command_topic(whiteValueTopic)
+                                                              .color_temp_state_topic(whiteValueStateTopic)
+                                                              .retain(true)
+                                                              .build());
+                                   mqttClient.send(
+                                           properties.getDiscoveryPrefix() + "/light/" + light.getId() + "/config",
+                                           MqttMessageUtil.createMessage(config, true));
+                                   AtomicInteger currentBrightness = new AtomicInteger(0);
+                                   AtomicBoolean currentState = new AtomicBoolean(false);
+                                   AtomicInteger whiteValue = new AtomicInteger(warmMireds + coldMireds / 2);
+                                   Runnable updateValue =
+                                           () -> {
+                                             final int targetBrightness = currentBrightness.get();
+                                             final int targetWhiteValue = whiteValue.get();
+                                             final boolean targetStateOn = currentState.get();
+                                             updateConsumer.accept(
+                                                     currentChannelValues.updateAndGet(
+                                                             oldValues -> {
+                                                               final int brightness = targetStateOn ? targetBrightness : 0;
+                                                               final int currentWhiteValue = targetWhiteValue;
+                                                               int warmPart = currentWhiteValue - coldMireds;
+                                                               int coldPart = warmMireds - currentWhiteValue;
+                                                               final int coldValue;
+                                                               final int warmValue;
+                                                               if (coldPart > warmPart) {
+                                                                 coldValue = brightness;
+                                                                 warmValue = brightness * warmPart / coldPart;
+                                                               } else {
+                                                                 warmValue = brightness;
+                                                                 coldValue = brightness * coldPart / warmPart;
+                                                               }
+                                                               final int coldAddress = light.getColdAddress();
+                                                               final int warmAddress = light.getWarmAddress();
+                                                               int maxAddress = Math.max(coldAddress, warmAddress);
+                                                               final ArrayList<Integer> newValues = new ArrayList<>(
+                                                                       oldValues);
+                                                               while (newValues.size() <= maxAddress) {
+                                                                 newValues.add(0);
+                                                               }
+                                                               newValues.set(coldAddress, coldValue);
+                                                               newValues.set(warmAddress, warmValue);
+                                                               return Collections.unmodifiableList(newValues);
+                                                             }));
+                                             mqttClient.send(
+                                                     brightnessStateTopic,
+                                                     MqttMessageUtil.createMessage(String.valueOf(targetBrightness),
+                                                                                   false));
+                                             mqttClient.send(
+                                                     whiteValueStateTopic,
+                                                     MqttMessageUtil.createMessage(String.valueOf(targetWhiteValue),
+                                                                                   false));
+                                           };
+                                   registerLight(
+                                           lightConfigurationConsumers,
+                                           stateTopic,
+                                           brightnessTopic,
+                                           currentBrightness,
+                                           currentState,
+                                           updateValue,
+                                           light.getId());
+                                   mqttClient.registerTopic(
+                                           whiteValueTopic,
+                                           message -> {
+                                             final byte[] payload = message.getMessage().getPayload();
+                                             final String state = new String(payload);
+                                             whiteValue.set(Integer.parseInt(state));
+                                             updateValue.run();
+                                           },
+                                           lightConfigurationConsumers.computeIfAbsent(
+                                                   light.getId() + "-white-value", key -> new DisposableConsumer()));
+                                 } catch (JsonProcessingException e) {
+                                   log.error("Cannot process json", e);
+                                 }
+                               });
 
     final String stateTopic = brickletPrefix + "/state";
     mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
@@ -233,6 +297,38 @@ public class DmxBrickletHandler implements DeviceHandler {
       channelRegistrationConsumer.accept(null);
       lightConfigurationConsumers.values().forEach(c -> c.accept(null));
     };
+  }
+
+  public void registerLight(
+          final Map<String, DisposableConsumer> lightConfigurationConsumers,
+          final String stateTopic,
+          final String brightnessTopic,
+          final AtomicInteger currentBrightness,
+          final AtomicBoolean currentState,
+          final Runnable updater,
+          final String id) {
+    mqttClient.registerTopic(
+            stateTopic,
+            message -> {
+              final byte[] payload = message.getMessage().getPayload();
+              final String state = new String(payload);
+              if (log.isDebugEnabled()) log.debug("Taken state: " + state);
+              currentState.set(state.equals("ON"));
+              updater.run();
+            },
+            lightConfigurationConsumers.computeIfAbsent(
+                    id + "-state", key -> new DisposableConsumer()));
+    mqttClient.registerTopic(
+            brightnessTopic,
+            message -> {
+              final byte[] payload = message.getMessage().getPayload();
+              final String state = new String(payload);
+              if (log.isDebugEnabled()) log.debug("Taken brightness: " + state);
+              currentBrightness.set(Integer.parseInt(state));
+              updater.run();
+            },
+            lightConfigurationConsumers.computeIfAbsent(
+                    id + "-brightness", key -> new DisposableConsumer()));
   }
 
   private int kelvin2Mireds(final int coldTemperature) {

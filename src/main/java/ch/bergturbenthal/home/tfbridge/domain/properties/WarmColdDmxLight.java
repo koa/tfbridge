@@ -5,12 +5,12 @@ import org.springframework.boot.context.properties.ConstructorBinding;
 
 @ConstructorBinding
 @Value
-public class DmxLight {
+public class WarmColdDmxLight {
   String id;
   String name;
   String dmxBricklet;
-  int warmAddress;
-  int coldAddress;
-  int warmTemperature;
-  int coldTemperature;
+  int    warmAddress;
+  int    coldAddress;
+  int    warmTemperature;
+  int    coldTemperature;
 }

@@ -61,6 +61,7 @@ public class PahoMqttClient implements MqttClient {
     // log.info("Discover");
     final MqttEndpoint mqtt = properties.getMqtt();
     final String service = mqtt.getService();
+    // log.info("Lookup for " + service);
     final List<ServiceInstance> discoveryClientInstances = discoveryClient.getInstances(service);
     for (ServiceInstance serviceInstance : discoveryClientInstances) {
       final String hostAddress = serviceInstance.getHost();
@@ -72,12 +73,12 @@ public class PahoMqttClient implements MqttClient {
       final MqttDefaultFilePersistence persistence =
               new MqttDefaultFilePersistence(System.getProperty("java.io.tmpdir"));
       final MqttAsyncClient client = new MqttAsyncClient(brokerAddress, clientId, persistence);
+      // log.info("Found Service: " + serviceInstance);
 
       client.setCallback(
               new MqttCallback() {
                 @Override
                 public void connectionLost(final Throwable throwable) {
-                  log.info("Found Service: " + serviceInstance);
                   log.warn("Connection to " + hostAddress + ":" + port + " lost", throwable);
                   runningClients.remove(inetSocketAddress, client);
                 }
