@@ -38,16 +38,17 @@ public class MasterBrickHandler implements DeviceHandler {
     final String topicPrefix = "Master/" + uid;
     MqttMessageUtil.publishVersions(mqttClient, topicPrefix, brickMaster.getIdentity());
 
+    final String currentTopic = topicPrefix + "/current";
     final BrickMaster.StackCurrentListener stackCurrentListener =
-        current -> {
-          mqttClient.send(topicPrefix + "/current", createValueMessage(current));
-        };
+            current -> mqttClient.send(currentTopic, createValueMessage(current));
     brickMaster.addStackCurrentListener(stackCurrentListener);
+    final String voltageTopic = topicPrefix + "/voltage";
     final BrickMaster.StackVoltageListener stackVoltageListener =
-            voltage -> mqttClient.send(topicPrefix + "/voltage", createValueMessage(voltage));
+            voltage -> mqttClient.send(voltageTopic, createValueMessage(voltage));
     brickMaster.addStackVoltageListener(stackVoltageListener);
+    final String usbVoltageTopic = topicPrefix + "/usbVoltage";
     final BrickMaster.USBVoltageListener usbVoltageListener =
-            voltage -> mqttClient.send(topicPrefix + "/usbVoltage", createValueMessage(voltage));
+            voltage -> mqttClient.send(usbVoltageTopic, createValueMessage(voltage));
     brickMaster.addUSBVoltageListener(usbVoltageListener);
     brickMaster.setStackCurrentCallbackPeriod(60000);
     brickMaster.setStackVoltageCallbackPeriod(60000);
@@ -93,6 +94,9 @@ public class MasterBrickHandler implements DeviceHandler {
       brickMaster.removeStackCurrentListener(stackCurrentListener);
       brickMaster.removeStackVoltageListener(stackVoltageListener);
       brickMaster.removeUSBVoltageListener(usbVoltageListener);
+      mqttClient.unpublishTopic(currentTopic);
+      mqttClient.unpublishTopic(voltageTopic);
+      mqttClient.unpublishTopic(usbVoltageTopic);
     };
   }
 

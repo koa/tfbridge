@@ -18,4 +18,5 @@ public class BridgeProperties {
   private List<OnOffButtonInput>  onOffButtons;
   private List<PirSensor>         pirSensors;
   private List<TemperatureSensor> temperatureSensors;
+  private List<Heater>            heaters;
 }

@@ -3,6 +3,7 @@ package ch.bergturbenthal.home.tfbridge;
 import ch.bergturbenthal.home.tfbridge.domain.client.impl.MultiplexTfClient;
 import ch.bergturbenthal.home.tfbridge.domain.device.DeviceHandler;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
+import ch.bergturbenthal.home.tfbridge.domain.service.DefaultConfigPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -20,7 +21,12 @@ import java.util.concurrent.ScheduledExecutorService;
 @EnableConfigurationProperties
 @SpringBootApplication(proxyBeanMethods = false)
 @ComponentScan(
-        basePackageClasses = {BridgeProperties.class, MultiplexTfClient.class, DeviceHandler.class})
+        basePackageClasses = {
+                BridgeProperties.class,
+                MultiplexTfClient.class,
+                DeviceHandler.class,
+                DefaultConfigPublisher.class
+        })
 @Import(SimpleDiscoveryClientAutoConfiguration.class)
 @EnableScheduling
 @Slf4j

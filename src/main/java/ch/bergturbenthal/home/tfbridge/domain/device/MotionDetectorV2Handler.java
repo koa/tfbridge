@@ -4,15 +4,16 @@ import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.BinarySensorConfig;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
+import ch.bergturbenthal.home.tfbridge.domain.service.ConfigService;
 import ch.bergturbenthal.home.tfbridge.domain.util.DisposableConsumer;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.tinkerforge.*;
+import com.tinkerforge.BrickletMotionDetectorV2;
+import com.tinkerforge.IPConnection;
+import com.tinkerforge.TinkerforgeException;
 import lombok.extern.slf4j.Slf4j;
-import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
@@ -26,18 +27,22 @@ import java.util.function.Consumer;
 @Service
 @Slf4j
 public class MotionDetectorV2Handler implements DeviceHandler {
-  private final MqttClient mqttClient;
+  private final MqttClient       mqttClient;
   private final BridgeProperties bridgeProperties;
-  private final ObjectWriter configWriter;
+  private final ObjectWriter     configWriter;
+  private final ConfigService    configService;
 
   public MotionDetectorV2Handler(
-      final MqttClient mqttClient, final BridgeProperties bridgeProperties) {
+          final MqttClient mqttClient,
+          final BridgeProperties bridgeProperties,
+          final ConfigService configService) {
     this.mqttClient = mqttClient;
     this.bridgeProperties = bridgeProperties;
+    this.configService = configService;
     final ObjectMapper objectMapper =
-        Jackson2ObjectMapperBuilder.json()
-            .serializationInclusion(JsonInclude.Include.NON_NULL)
-            .build();
+            Jackson2ObjectMapperBuilder.json()
+                                       .serializationInclusion(JsonInclude.Include.NON_NULL)
+                                       .build();
     configWriter = objectMapper.writerFor(BinarySensorConfig.class);
   }
 
@@ -47,102 +52,91 @@ public class MotionDetectorV2Handler implements DeviceHandler {
   }
 
   @Override
-  public Disposable registerDevice(final String uid,
-                                   final IPConnection connection,
-                                   final Consumer<Throwable> errorConsumer)
-      throws TinkerforgeException {
+  public Disposable registerDevice(
+          final String uid, final IPConnection connection, final Consumer<Throwable> errorConsumer)
+          throws TinkerforgeException {
     final BrickletMotionDetectorV2 bricklet = new BrickletMotionDetectorV2(uid, connection);
     String topicPrefix = "BrickletMotionDetectorV2/" + uid;
     MqttMessageUtil.publishVersions(mqttClient, topicPrefix, bricklet.getIdentity());
     final AtomicInteger counter = new AtomicInteger();
     final Consumer<Disposable> sensitivityConsumer;
     final String motionStateTopic = topicPrefix + "/motion";
-    bricklet.addMotionDetectedListener(
-        () -> {
-          // log.info("Motion detected at " + settings);
-          final int number = counter.incrementAndGet();
+    final BrickletMotionDetectorV2.MotionDetectedListener motionDetectedListener =
+            () -> {
+              // log.info("Motion detected at " + settings);
+              final int number = counter.incrementAndGet();
 
-          mqttClient.send(
-              topicPrefix + "/motionCount",
-              MqttMessageUtil.createMessage(String.valueOf(number), true));
-          mqttClient.send(motionStateTopic, MqttMessageUtil.createMessage("on", false));
-        });
+              mqttClient.send(
+                      topicPrefix + "/motionCount",
+                      MqttMessageUtil.createMessage(String.valueOf(number), true));
+              mqttClient.send(motionStateTopic, MqttMessageUtil.createMessage("on", false));
+            };
+    bricklet.addMotionDetectedListener(motionDetectedListener);
     bricklet.addDetectionCycleEndedListener(
-        () -> mqttClient.send(motionStateTopic, MqttMessageUtil.createMessage("off", false)));
+            () -> mqttClient.send(motionStateTopic, MqttMessageUtil.createMessage("off", false)));
     sensitivityConsumer = new DisposableConsumer();
 
-    mqttClient.registerTopic(
-        topicPrefix + "/sensitivity",
-        message -> {
-          try {
-            final Integer sensitivity =
-                Integer.valueOf(new String(message.getMessage().getPayload()));
-            bricklet.setSensitivity(sensitivity);
-          } catch (TinkerforgeException e) {
-            log.warn("Cannot update sensitivity on " + uid, e);
-          }
-        },
-        sensitivityConsumer);
     bricklet.setIndicator(0, 0, 0);
     bricklet.setStatusLEDConfig(BrickletMotionDetectorV2.STATUS_LED_CONFIG_OFF);
     final String stateTopic = topicPrefix + "/state";
     mqttClient.send(stateTopic, MqttMessageUtil.ONLINE_MESSAGE);
-    Optional.ofNullable(bridgeProperties.getPirSensors()).stream()
-        .flatMap(Collection::stream)
-        .filter(s -> s.getBricklet().equals(uid))
-        .findFirst()
-        .ifPresent(
-            sensor -> {
+    final Optional<BinarySensorConfig> sensorConfig =
+            Optional.ofNullable(bridgeProperties.getPirSensors()).stream()
+                    .flatMap(Collection::stream)
+                    .filter(s -> s.getBricklet().equals(uid))
+                    .findFirst()
+                    .flatMap(
+                            sensor -> {
+                              try {
+                                bricklet.setSensitivity(100);
+                                return Optional.of(
+                                        BinarySensorConfig.builder()
+                                                          .platform("mqtt")
+                                                          .name(sensor.getName())
+                                                          .state_topic(motionStateTopic)
+                                                          .payload_on("on")
+                                                          .payload_off("off")
+                                                          /*.availability(<
+                                                          Availability.builder()
+                                                              .topic(stateTopic)
+                                                              .payload_available("online")
+                                                              .payload_not_available("offline")
+                                                              .build())*/
+                                                          .device(
+                                                                  Device.builder()
+                                                                        .identifiers(Collections.singletonList(sensor.getId()))
+                                                                        .name(sensor.getName())
+                                                                        .manufacturer("Tinkerforge")
+                                                                        .model("Motion Detector V2")
+                                                                        .build())
+                                                          .device_class("motion")
+                                                          .expire_after(3600 * 24)
+                                                          .unique_id(sensor.getId())
+                                                          .qos(1)
+                                                          .build());
+                              } catch (TinkerforgeException e) {
+                                log.error("Cannot update config", e);
+                                return Optional.empty();
+                              }
+                            });
+    sensorConfig.ifPresent(configService::publishConfig);
+    mqttClient.registerTopic(
+            topicPrefix + "/sensitivity",
+            message -> {
               try {
-                final String config =
-                    configWriter.writeValueAsString(
-                        BinarySensorConfig.builder()
-                            .platform("mqtt")
-                            .name(sensor.getName())
-                            .state_topic(motionStateTopic)
-                            .payload_on("on")
-                            .payload_off("off")
-                            /*.availability(<
-                                Availability.builder()
-                                    .topic(stateTopic)
-                                    .payload_available("online")
-                                    .payload_not_available("offline")
-                                    .build())*/
-                            .device(
-                                Device.builder()
-                                    .identifiers(Collections.singletonList(sensor.getId()))
-                                    .name(sensor.getName())
-                                    .manufacturer("Tinkerforge")
-                                    .model("Motion Detector V2")
-                                    .build())
-                            .device_class("motion")
-                            .expire_after(3600*24)
-                            .unique_id(sensor.getId())
-                            .qos(1)
-                            .build());
-                mqttClient.send(
-                    bridgeProperties.getDiscoveryPrefix()
-                        + "/binary_sensor/"
-                        + sensor.getId()
-                        + "/config",
-                    MqttMessageUtil.createMessage(config, true));
-                bricklet.setSensitivity(100);
-              } catch (JsonProcessingException | TinkerforgeException e) {
-                log.error("Cannot serialize config", e);
+                final int sensitivity = Integer.parseInt(new String(message.getMessage().getPayload()));
+                bricklet.setSensitivity(sensitivity);
+              } catch (TinkerforgeException e) {
+                log.warn("Cannot update sensitivity on " + uid, e);
               }
-            });
+            },
+            sensitivityConsumer);
+
     return () -> {
       mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
       sensitivityConsumer.accept(null);
-      bricklet.removeMotionDetectedListener(
-          () -> {
-            // log.info("Motion detected at " + settings);
-            final int number = counter.incrementAndGet();
-            final MqttMessage message1 = new MqttMessage();
-            message1.setQos(1);
-            message1.setPayload(String.valueOf(number).getBytes());
-            mqttClient.send(topicPrefix + "/motionCount", message1);
-          });
+      bricklet.removeMotionDetectedListener(motionDetectedListener);
+      sensorConfig.ifPresent(configService::unpublishConfig);
     };
   }
 }

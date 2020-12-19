@@ -4,16 +4,12 @@ import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
 import ch.bergturbenthal.home.tfbridge.domain.ha.TriggerConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
+import ch.bergturbenthal.home.tfbridge.domain.service.ConfigService;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.tinkerforge.BrickletIO16V2;
 import com.tinkerforge.IPConnection;
 import com.tinkerforge.TinkerforgeException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -21,33 +17,34 @@ import reactor.util.function.Tuples;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
 public class IO16V2DeviceHandler implements DeviceHandler {
-  private final MqttClient mqttClient;
-  private final BridgeProperties properties;
+  private final MqttClient               mqttClient;
+  private final BridgeProperties         properties;
   private final ScheduledExecutorService executorService;
-  private final ObjectWriter configWriter;
+  private final ConfigService            configService;
 
   public IO16V2DeviceHandler(
-      final MqttClient mqttClient,
-      final BridgeProperties properties,
-      ScheduledExecutorService executorService) {
+          final MqttClient mqttClient,
+          final BridgeProperties properties,
+          ScheduledExecutorService executorService,
+          final ConfigService configService) {
     this.mqttClient = mqttClient;
     this.properties = properties;
     this.executorService = executorService;
-    final ObjectMapper objectMapper =
-        Jackson2ObjectMapperBuilder.json()
-            .serializationInclusion(JsonInclude.Include.NON_NULL)
-            .build();
-    configWriter = objectMapper.writerFor(TriggerConfig.class);
+    this.configService = configService;
   }
 
   @Override
@@ -66,91 +63,87 @@ public class IO16V2DeviceHandler implements DeviceHandler {
     bricklet.setStatusLEDConfig(0);
 
     Consumer<Boolean>[] buttonConsumers = new Consumer[16];
-    Arrays.fill(buttonConsumers, (Consumer<Boolean>) (value) -> {});
+    Arrays.fill(buttonConsumers, (Consumer<Boolean>) (value) -> {
+    });
     final BrickletIO16V2.InputValueListener inputValueListener =
-        (channel, changed, value) -> buttonConsumers[channel].accept(!value);
+            (channel, changed, value) -> buttonConsumers[channel].accept(!value);
     bricklet.addInputValueListener(inputValueListener);
-    properties.getOnOffButtons().stream()
-        .filter(b -> b.getIo16Bricklet().equals(uid))
-        .forEach(
-            onOffButtonInput -> {
-              try {
-                String buttonPrefix = brickletPrefix + "/button/" + onOffButtonInput.getId();
-                String onButtonTopic = buttonPrefix + "/on";
-                String offButtonTopic = buttonPrefix + "/off";
+    AtomicInteger idGenerator = new AtomicInteger(0);
+    final List<TriggerConfig> configs =
+            properties.getOnOffButtons().stream()
+                      .filter(b -> b.getIo16Bricklet().equals(uid))
+                      .flatMap(
+                              onOffButtonInput -> {
+                                try {
+                                  String buttonPrefix = brickletPrefix + "/button/" + onOffButtonInput.getId();
+                                  String onButtonTopic = buttonPrefix + "/on";
+                                  String offButtonTopic = buttonPrefix + "/off";
 
-                final int onAddress = onOffButtonInput.getOnAddress();
-                final int offAddress = onOffButtonInput.getOffAddress();
-                bricklet.setConfiguration(onAddress, 'i', true);
-                bricklet.setInputValueCallbackConfiguration(onAddress, 5, true);
-                bricklet.setConfiguration(offAddress, 'i', true);
-                bricklet.setInputValueCallbackConfiguration(offAddress, 5, true);
-                buttonConsumers[onAddress] = new ButtonHandler(onButtonTopic);
-                buttonConsumers[offAddress] = new ButtonHandler(offButtonTopic);
+                                  final int onAddress = onOffButtonInput.getOnAddress();
+                                  final int offAddress = onOffButtonInput.getOffAddress();
+                                  bricklet.setConfiguration(onAddress, 'i', true);
+                                  bricklet.setInputValueCallbackConfiguration(onAddress, 5, true);
+                                  bricklet.setConfiguration(offAddress, 'i', true);
+                                  bricklet.setInputValueCallbackConfiguration(offAddress, 5, true);
+                                  buttonConsumers[onAddress] = new ButtonHandler(onButtonTopic);
+                                  buttonConsumers[offAddress] = new ButtonHandler(offButtonTopic);
 
-                final com.tinkerforge.Device.Identity identity = bricklet.getIdentity();
-                final Device device =
-                    Device.builder()
-                        .identifiers(Collections.singletonList(onOffButtonInput.getId()))
-                        .model("On Off Button")
-                        .manufacturer("Tinkerforge")
-                        .sw_version(identity.firmwareVersion[0] + "." + identity.firmwareVersion[1])
-                        .name(onOffButtonInput.getName())
-                        .build();
-                Flux.just(
-                        Tuples.of(onButtonTopic, "turn_on"), Tuples.of(offButtonTopic, "turn_off"))
-                    .flatMap(
-                        topic ->
-                            Flux.just(
-                                    "button_short_press",
-                                    "button_short_release",
-                                    "button_long_press",
-                                    "button_long_release")
-                                .map(event -> Tuples.of(topic, event)))
-                    .map(
-                        t -> {
-                          final String topic = t.getT1().getT1();
-                          final String subType = t.getT1().getT2();
-                          final String event = t.getT2();
-                          return TriggerConfig.builder()
-                              .automation_type("trigger")
-                              .topic(topic)
-                              .device(device)
-                              .payload(event)
-                              .type(event)
-                              .subtype(subType)
-                              .qos(1)
-                              .platform("mqtt")
-                              .build();
-                        })
-                    .map(
-                        c -> {
-                          try {
-                            return configWriter.writeValueAsString(c);
-                          } catch (JsonProcessingException e) {
-                            throw new RuntimeException(e);
-                          }
-                        })
-                    .index()
-                    .subscribe(
-                        tuple -> {
-                          final Long index = tuple.getT1();
-                          final String config = tuple.getT2();
-                          mqttClient.send(
-                              properties.getDiscoveryPrefix()
-                                  + "/device_automation/"
-                                  + MqttMessageUtil.strip(onOffButtonInput.getId() + "-" + index)
-                                  + "/config",
-                              MqttMessageUtil.createMessage(config, true));
-                        });
+                                  final com.tinkerforge.Device.Identity identity = bricklet.getIdentity();
+                                  final Device device =
+                                          Device.builder()
+                                                .identifiers(Collections.singletonList(onOffButtonInput.getId()))
+                                                .model("On Off Button")
+                                                .manufacturer("Tinkerforge")
+                                                .sw_version(
+                                                        identity.firmwareVersion[0] + "." + identity.firmwareVersion[1])
+                                                .name(onOffButtonInput.getName())
+                                                .build();
+                                  return Flux.just(
+                                          Tuples.of(onButtonTopic, "turn_on"), Tuples.of(offButtonTopic, "turn_off"))
+                                             .flatMap(
+                                                     topic ->
+                                                             Flux.just(
+                                                                     "button_short_press",
+                                                                     "button_short_release",
+                                                                     "button_long_press",
+                                                                     "button_long_release")
+                                                                 .map(event -> Tuples.of(topic, event)))
+                                             .map(
+                                                     t -> {
+                                                       final String topic = t.getT1().getT1();
+                                                       final String subType = t.getT1().getT2();
+                                                       final String event = t.getT2();
+                                                       return TriggerConfig.builder()
+                                                                           .automation_type("trigger")
+                                                                           .topic(topic)
+                                                                           .device(device)
+                                                                           .payload(event)
+                                                                           .type(event)
+                                                                           .subtype(subType)
+                                                                           .qos(1)
+                                                                           .platform("mqtt")
+                                                                           .discovery_id(
+                                                                                   MqttMessageUtil.strip(
+                                                                                           onOffButtonInput.getId() + "-" + subType + "-" + event))
+                                                                           .build();
+                                                     })
+                                             .collectList()
+                                             .block()
+                                             .stream();
 
-              } catch (TinkerforgeException e) {
-                log.warn("Cannot configure device " + uid, e);
-                errorConsumer.accept(e);
-              }
-            });
+                                } catch (TinkerforgeException e) {
+                                  log.warn("Cannot configure device " + uid, e);
+                                  errorConsumer.accept(e);
+                                  return Stream.empty();
+                                }
+                              })
+                      .collect(Collectors.toList());
 
-    return () -> bricklet.removeInputValueListener(inputValueListener);
+    configs.forEach(configService::publishConfig);
+    return () -> {
+      bricklet.removeInputValueListener(inputValueListener);
+      configs.forEach(configService::unpublishConfig);
+    };
   }
 
   private class ButtonHandler implements Consumer<Boolean> {

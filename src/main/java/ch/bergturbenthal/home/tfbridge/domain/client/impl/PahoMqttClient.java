@@ -20,6 +20,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
 import reactor.util.retry.Retry;
 
+import javax.annotation.PreDestroy;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.*;
@@ -38,10 +39,10 @@ public class PahoMqttClient implements MqttClient {
   private static final Pattern                                 SPLIT_PATTERN    = Pattern.compile(Pattern.quote("/"));
   private final        Map<String, RegisteredListeners>        registeredSinks  = new ConcurrentHashMap<>();
   private final        Map<InetSocketAddress, MqttAsyncClient> runningClients   = new ConcurrentHashMap<>();
-  private final        Map<String, MqttMessage>                retainedMessages = new ConcurrentHashMap<>();
+  private final        Map<String, RetainedMessage>            retainedMessages = new ConcurrentHashMap<>();
   private final        BridgeProperties                        properties;
   private final        ScheduledExecutorService                executorService;
-  private              DiscoveryClient                         discoveryClient;
+  private final        DiscoveryClient                         discoveryClient;
 
   public PahoMqttClient(
           final BridgeProperties properties,
@@ -85,7 +86,8 @@ public class PahoMqttClient implements MqttClient {
 
                 @Override
                 public void messageArrived(final String s, final MqttMessage mqttMessage) {
-                  if (mqttMessage.isRetained()) retainedMessages.put(s, mqttMessage);
+                  if (mqttMessage.isRetained())
+                    retainedMessages.put(s, new RetainedMessage(mqttMessage));
                   if (log.isDebugEnabled()) {
                     log.debug(" -> " + s + ": " + new String(mqttMessage.getPayload()));
                   }
@@ -130,8 +132,9 @@ public class PahoMqttClient implements MqttClient {
                       log.info("All retained messages sent");
                       return;
                     }
-                    final MqttMessage mqttMessage = retainedMessages.get(foundTopic);
-                    if (mqttMessage == null) continue;
+                    final RetainedMessage retainedMessage = retainedMessages.get(foundTopic);
+                    if (retainedMessage == null) continue;
+                    final MqttMessage mqttMessage = retainedMessage.getMessage();
                     // log.info("Deliver retained message on topic " + foundTopic);
                     try {
                       client
@@ -140,6 +143,10 @@ public class PahoMqttClient implements MqttClient {
                                       new IMqttActionListener() {
                                         @Override
                                         public void onSuccess(final IMqttToken asyncActionToken) {
+                                          if (asyncActionToken instanceof IMqttDeliveryToken)
+                                            retainedMessage
+                                                    .getDeliveryTokens()
+                                                    .put(inetSocketAddress, (IMqttDeliveryToken) asyncActionToken);
                                           sendRetainedMessages(pendingRetainedMessages);
                                         }
 
@@ -188,58 +195,94 @@ public class PahoMqttClient implements MqttClient {
     if (log.isInfoEnabled()) {
       /// log.info(" <- " + topic + ": " + new String(message.getPayload()));
     }
+    final RetainedMessage retainedMessage = new RetainedMessage(message);
     if (message.isRetained()) {
-      retainedMessages.put(topic, message);
+      retainedMessages.put(topic, retainedMessage);
     } else retainedMessages.remove(topic);
 
-    return Flux.fromStream(runningClients.values().stream())
-        .flatMap(
-            client ->
-                Mono.create(
-                        (MonoSink<MqttWireMessage> sink) -> {
-                          try {
-                            client.publish(
-                                topic,
-                                message,
-                                null,
-                                new IMqttActionListener() {
-                                  @Override
-                                  public void onSuccess(final IMqttToken iMqttToken) {
-                                    sink.success(iMqttToken.getResponse());
-                                  }
+    return Flux.fromStream(runningClients.entrySet().stream())
+               .flatMap(
+                       clientEntry ->
+                               Mono.create(
+                                       (MonoSink<MqttWireMessage> sink) -> {
+                                         final MqttAsyncClient client = clientEntry.getValue();
+                                         final InetSocketAddress socketAddress = clientEntry.getKey();
+                                         try {
+                                           final IMqttDeliveryToken token =
+                                                   client.publish(
+                                                           topic,
+                                                           message,
+                                                           null,
+                                                           new IMqttActionListener() {
+                                                             @Override
+                                                             public void onSuccess(final IMqttToken iMqttToken) {
+                                                               sink.success(iMqttToken.getResponse());
+                                                             }
 
-                                  @Override
-                                  public void onFailure(
-                                      final IMqttToken iMqttToken, final Throwable throwable) {
-                                    sink.error(throwable);
-                                  }
-                                });
-                          } catch (MqttException e) {
-                            sink.error(e);
-                          }
-                        })
-                    .retryWhen(Retry.backoff(50, Duration.ofSeconds(3))))
-        .onErrorContinue((ex, value) -> log.warn("Cannot send message to mqtt", ex));
+                                                             @Override
+                                                             public void onFailure(
+                                                                     final IMqttToken iMqttToken,
+                                                                     final Throwable throwable) {
+                                                               sink.error(throwable);
+                                                             }
+                                                           });
+                                           if (message.isRetained())
+                                             retainedMessage.getDeliveryTokens().put(socketAddress, token);
+                                         } catch (MqttException e) {
+                                           sink.error(e);
+                                         }
+                                       })
+                                   .retryWhen(Retry.backoff(50, Duration.ofSeconds(3))))
+               .onErrorContinue((ex, value) -> log.warn("Cannot send message to mqtt", ex));
+  }
+
+  @PreDestroy
+  public void removeAllRetainedMessages() {
+    final Queue<String> topicsToRemove = new LinkedList<>(retainedMessages.keySet());
+    while (true) {
+      final String topic = topicsToRemove.poll();
+      if (topic == null) break;
+      unpublishTopic(topic);
+    }
+  }
+
+  @Override
+  public void unpublishTopic(final String topic) {
+    final RetainedMessage retainedMessage = retainedMessages.remove(topic);
+    if (retainedMessage == null) return;
+    retainedMessage
+            .getDeliveryTokens()
+            .forEach(
+                    (address, token) -> {
+                      final MqttAsyncClient runningClient = runningClients.get(address);
+                      if (runningClient != null) {
+                        try {
+                          runningClient.removeMessage(token);
+                        } catch (MqttException e) {
+                          log.warn("Cannot remove retained message " + topic + " from " + address, e);
+                        }
+                      }
+                    });
   }
 
   @Override
   public Flux<MqttClient.ReceivedMqttMessage> listenTopic(String topic) {
     final Pattern topicPattern = parseTopic(topic);
     final Flux<ReceivedMqttMessage> retainedStream =
-        Flux.fromStream(
-            retainedMessages.entrySet().stream()
-                .filter(e -> topicPattern.matcher(e.getKey()).matches())
-                .map(e -> new ImmutableReceivedMqttMessage(e.getKey(), e.getValue())));
+            Flux.fromStream(
+                    retainedMessages.entrySet().stream()
+                                    .filter(e -> topicPattern.matcher(e.getKey()).matches())
+                                    .map(e -> new ImmutableReceivedMqttMessage(e.getKey(), e.getValue().getMessage())));
     final Flux<ReceivedMqttMessage> liveStream =
-        Flux.create(
-            (FluxSink<ReceivedMqttMessage> sink) -> {
-              sink.onDispose(
-                  () -> {
-                    synchronized (registeredSinks) {
-                      final RegisteredListeners existingSubscriptions = registeredSinks.get(topic);
-                      if (existingSubscriptions != null)
-                        existingSubscriptions.getListeners().remove(sink);
-                      if (existingSubscriptions == null
+            Flux.create(
+                    (FluxSink<ReceivedMqttMessage> sink) -> {
+                      sink.onDispose(
+                              () -> {
+                                synchronized (registeredSinks) {
+                                  final RegisteredListeners existingSubscriptions = registeredSinks.get(topic);
+                                  if (existingSubscriptions != null)
+                                    existingSubscriptions.getListeners().remove(sink);
+                                  if (existingSubscriptions == null
                           || existingSubscriptions.getListeners().isEmpty()) {
                         registeredSinks.remove(topic);
                         runningClients
@@ -327,14 +370,21 @@ public class PahoMqttClient implements MqttClient {
 
   @Value
   private static final class RegisteredListeners {
-    private Pattern matchingTopic;
+    private Pattern                                              matchingTopic;
     private Collection<FluxSink<MqttClient.ReceivedMqttMessage>> listeners;
   }
 
   @Value
   private static final class ImmutableReceivedMqttMessage
-      implements ch.bergturbenthal.home.tfbridge.domain.client.MqttClient.ReceivedMqttMessage {
-    private String topic;
+          implements ch.bergturbenthal.home.tfbridge.domain.client.MqttClient.ReceivedMqttMessage {
+    private String      topic;
     private MqttMessage message;
+  }
+
+  @Value
+  private static class RetainedMessage {
+    MqttMessage                                message;
+    Map<InetSocketAddress, IMqttDeliveryToken> deliveryTokens =
+            Collections.synchronizedMap(new HashMap<>());
   }
 }
