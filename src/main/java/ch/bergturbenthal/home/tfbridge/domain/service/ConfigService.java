@@ -10,4 +10,13 @@ public interface ConfigService {
   default void unpublishConfig(PublishingConfig config) {
     unpublishConfig(config.id());
   }
+
+  <P extends PublishingConfig> void registerForConfiguration(
+          Class<P> configType, String id, ConfigurationListener<P> listener);
+
+  interface ConfigurationListener<P extends PublishingConfig> {
+    void notifyConfigAdded(P configuration);
+
+    void notifyConfigRemoved(P configuration);
+  }
 }

@@ -6,16 +6,12 @@ import ch.bergturbenthal.home.tfbridge.domain.ha.SensorConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.service.ConfigService;
 import ch.bergturbenthal.home.tfbridge.domain.util.MqttMessageUtil;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.tinkerforge.BrickletTemperatureV2;
 import com.tinkerforge.IPConnection;
 import com.tinkerforge.TinkerforgeException;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.internal.wire.MqttWireMessage;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -31,7 +27,6 @@ import java.util.function.Consumer;
 public class TemperatureV2BrickletHandler implements DeviceHandler {
   private final MqttClient       mqttClient;
   private final BridgeProperties properties;
-  private final ObjectWriter     configWriter;
   private final ConfigService    configService;
 
   public TemperatureV2BrickletHandler(
@@ -41,11 +36,6 @@ public class TemperatureV2BrickletHandler implements DeviceHandler {
     this.mqttClient = mqttClient;
     this.properties = properties;
     this.configService = configService;
-    final ObjectMapper objectMapper =
-            Jackson2ObjectMapperBuilder.json()
-                                       .serializationInclusion(JsonInclude.Include.NON_NULL)
-                                       .build();
-    configWriter = objectMapper.writerFor(SensorConfig.class);
   }
 
   @Override
@@ -70,7 +60,7 @@ public class TemperatureV2BrickletHandler implements DeviceHandler {
               message.setRetained(true);
               final Flux<MqttWireMessage> publish = mqttClient.publish(temperatureTopic, message);
               publish.subscribe(result -> {
-              }, ex -> log.warn("Cannot send motion detection"));
+              }, ex -> log.warn("Cannot send temperature update"));
             };
     final String stateTopic = topicPrefix + "/state";
 
