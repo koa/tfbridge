@@ -248,6 +248,7 @@ public class PahoMqttClient implements MqttClient {
 
   @Override
   public void unpublishTopic(final String topic) {
+    if (topic == null) return;
     final RetainedMessage retainedMessage = retainedMessages.remove(topic);
     if (retainedMessage == null) return;
     retainedMessage
@@ -293,16 +294,16 @@ public class PahoMqttClient implements MqttClient {
                                                         client.unsubscribe(topic);
                                                       } catch (MqttException e) {
                                                         log.error("Cannot unsubscribe from " + topic, e);
+                                                      }
+                                                    });
                                   }
-                                });
-                      }
-                    }
-                  });
-              synchronized (registeredSinks) {
-                final RegisteredListeners existingSubscriptions = registeredSinks.get(topic);
-                if (existingSubscriptions != null) {
-                  existingSubscriptions.getListeners().add(sink);
-                } else {
+                                }
+                              });
+                      synchronized (registeredSinks) {
+                        final RegisteredListeners existingSubscriptions = registeredSinks.get(topic);
+                        if (existingSubscriptions != null) {
+                          existingSubscriptions.getListeners().add(sink);
+                        } else {
                   final Collection<FluxSink<ReceivedMqttMessage>> newSubscriptions =
                       new ConcurrentLinkedDeque<>();
 
