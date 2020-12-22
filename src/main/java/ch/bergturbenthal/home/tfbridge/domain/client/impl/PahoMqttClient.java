@@ -255,12 +255,12 @@ public class PahoMqttClient implements MqttClient {
             .forEach(
                     (address, token) -> {
                       final MqttAsyncClient runningClient = runningClients.get(address);
-                      if (runningClient != null) {
-                        try {
+                      try {
+                        if (runningClient != null && token.getMessage() != null) {
                           runningClient.removeMessage(token);
-                        } catch (MqttException e) {
-                          log.warn("Cannot remove retained message " + topic + " from " + address, e);
                         }
+                      } catch (MqttException e) {
+                        log.warn("Cannot remove retained message " + topic + " from " + address, e);
                       }
                     });
   }
@@ -283,16 +283,16 @@ public class PahoMqttClient implements MqttClient {
                                   if (existingSubscriptions != null)
                                     existingSubscriptions.getListeners().remove(sink);
                                   if (existingSubscriptions == null
-                          || existingSubscriptions.getListeners().isEmpty()) {
-                        registeredSinks.remove(topic);
-                        runningClients
-                            .values()
-                            .forEach(
-                                client -> {
-                                  try {
-                                    client.unsubscribe(topic);
-                                  } catch (MqttException e) {
-                                    log.error("Cannot unsubscribe from " + topic, e);
+                                          || existingSubscriptions.getListeners().isEmpty()) {
+                                    registeredSinks.remove(topic);
+                                    runningClients
+                                            .values()
+                                            .forEach(
+                                                    client -> {
+                                                      try {
+                                                        client.unsubscribe(topic);
+                                                      } catch (MqttException e) {
+                                                        log.error("Cannot unsubscribe from " + topic, e);
                                   }
                                 });
                       }
