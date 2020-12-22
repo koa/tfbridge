@@ -166,6 +166,7 @@ public class QuadRelayBrickletHandler implements DeviceHandler {
                                                  .modes(Arrays.asList("heat", "off"))
                                                  .min_temp(12)
                                                  .max_temp(26)
+                                                 .temp_step(0.5)
                                                  .build();
                            })
                    .collect(Collectors.toList());
