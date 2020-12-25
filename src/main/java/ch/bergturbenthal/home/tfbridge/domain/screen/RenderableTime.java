@@ -1,21 +1,24 @@
 package ch.bergturbenthal.home.tfbridge.domain.screen;
 
-import org.springframework.scheduling.annotation.Scheduled;
-
-import java.awt.*;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-public class RenderableTime implements Renderable, ChangeNotifier {
-  private final List<ChangeListener> changeListeners = new ArrayList<>();
+public class RenderableTime extends AbstractChangeNotifier implements Renderable {
+  private final ZoneId zoneId = ZoneId.of("Europe/Zurich");
+  private final Locale locale = Locale.GERMAN;
 
   @Override
   public int getMinHeight() {
-    return 0;
+    return PaintCanvas.CHARACTER_HEIGHT + 2;
   }
 
-  @Scheduled(fixedDelay = 60 * 1000)
-  void updateTime() {
+  public void updateTime() {
     synchronized (changeListeners) {
       changeListeners.forEach(ChangeListener::notifyChange);
     }
@@ -23,16 +26,16 @@ public class RenderableTime implements Renderable, ChangeNotifier {
 
   @Override
   public float getExpandRatio() {
-    return 0.1f;
+    return 0.4f;
   }
 
   @Override
-  public void render(final int height, final Graphics2D canvas) {}
+  public void render(final Canvas canvas) {
 
-  @Override
-  public void addChangeListener(final ChangeListener changeListener) {
-    synchronized (changeListeners) {
-      changeListeners.add(changeListener);
-    }
+    final TemporalAccessor time = Instant.now().atZone(zoneId);
+    final String string =
+            DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale).format(time);
+    canvas.drawCenteredString(string, false, BoxStyle.EMPTY);
   }
+
 }

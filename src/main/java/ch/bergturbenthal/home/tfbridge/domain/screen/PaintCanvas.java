@@ -1,19 +1,18 @@
-package ch.bergturbenthal.home.tfbridge;
+package ch.bergturbenthal.home.tfbridge.domain.screen;
 
-import ch.bergturbenthal.home.tfbridge.domain.screen.Canvas;
-import ch.bergturbenthal.home.tfbridge.domain.screen.*;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.Test;
 
-import java.awt.*;
-import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
-public class TestJava2D {
-  static short[] font = {
+public class PaintCanvas implements Canvas {
+  public static final  int     CHARACTER_WIDTH  = 6;
+  public static final  int     CHARACTER_HEIGHT = 8;
+  private static final Charset FONT_CHARSET     = Charset.forName("IBM437");
+  private static final short[] FONT             = {
           0x00, 0x00, 0x00, 0x00, 0x00,
           0x3E, 0x5B, 0x4F, 0x5B, 0x3E,
           0x3E, 0x6B, 0x4F, 0x6B, 0x3E,
@@ -271,83 +270,268 @@ public class TestJava2D {
           0x00, 0x3C, 0x3C, 0x3C, 0x3C,
           0x00, 0x00, 0x00, 0x00, 0x00
   };
+  private final        Painter painter;
 
-  @Test
-  public void testRender() throws IOException, FontFormatException {
-    // Charset.availableCharsets().keySet().forEach(name -> log.info("Charset: " + name));
-    String text = "012345678°9abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZäöüÄÖÜ        ";
-    final PngPainter pngPainter = new PngPainter();
-
-    // final InputStream isr = new ClassPathResource("unifont-13.0.05.ttf").getInputStream();
-    // final Font font = new Font("Courier New", 0, 12);
-    // final AffineTransform at = AffineTransform.getScaleInstance(1 + 0.007, 1.0);
-    // graphics.setTransform(at);
-    // graphics.setFont(Font.createFont(Font.TRUETYPE_FONT, isr).deriveFont(12.1f));
-    // graphics.drawString("8°", 0, 110);
-    /*
-    final LineMetrics hello = font.getLineMetrics("Hello", graphics.getFontRenderContext());
-    log.info("Ascent: " + hello.getAscent());
-    log.info("Descent: " + hello.getDescent());
-    log.info("Height: " + hello.getHeight());
-
-    for (int i = 0; i < text.length() / 10; i++) {
-      graphics.drawString(text.substring(i * 10, (i + 1) * 10), 0, (i + 1) * 12);
-    }*/
-    /*
-    char pos = '°';
-    font[pos * 5] = 0x0;
-    font[pos * 5 + 1] = 0x4;
-    font[pos * 5 + 2] = 0xa;
-    font[pos * 5 + 3] = 0x4;
-    font[pos * 5 + 4] = 0x0;
-     */
-    final PaintCanvas canvas = new PaintCanvas(pngPainter);
-
-    final int px = 64 / 2 - 5 * PaintCanvas.CHARACTER_WIDTH / 2;
-    final int py = 16 / 2 - PaintCanvas.CHARACTER_HEIGHT / 2;
-    log.info("x: " + px + ", y: " + py);
-    canvas.clear(true);
-    final RenderableTime renderableTime = new RenderableTime();
-    // final Canvas timeCanvas = canvas.createWindow(0, 0, 64, 16);
-    // renderableTime.render(timeCanvas);
-    // timeCanvas.drawCenteredString("14:24", false, BoxStyle.EMPTY);
-    final RenderableText currentTemperatureRenderer = new RenderableText(BoxStyle.DASHED, 0.5f);
-    currentTemperatureRenderer.setText("24.5°");
-    // currentTemperatureRenderer.render(canvas.createWindow(0, 16, 64, 40));
-
-    final RenderableNumber brightSelection = new RenderableNumber(255, Icons.BRIGHT_ICON, 1, 2);
-    // brightSelection.render(canvas.createWindow(0, 51, 64, 66));
-
-    final RenderableNumber colorSelection = new RenderableNumber(255, Icons.COLOR_ICON, 1, 2);
-    // colorSelection.render(canvas.createWindow(0, 79, 64, 94));
-
-    final RenderableNumber renderableNumber = new RenderableNumber(24.0, null, 15, 30);
-
-    // renderableNumber.render(canvas.createWindow(0, 106, 64, 121));
-
-    final List<Renderable> renderables =
-            Arrays.asList(
-                    renderableTime // ,
-                    // currentTemperatureRenderer,
-                    // brightSelection,
-                    // colorSelection,
-                    //    renderableNumber
-            );
-    canvas.drawScreen(renderables);
-
-    pngPainter.store(new File("target/out.png"));
+  public PaintCanvas(final Painter painter) {
+    this.painter = painter;
   }
 
-  public void addPlusMinusButtons(final Canvas line1Window) {
-    line1Window.drawBoxedString(
-            1, 1, 18, line1Window.getHeight() - 1, "-", false, BoxStyle.ROUNDED);
-    line1Window.drawBoxedString(
-            line1Window.getWidth() - 18,
-            1,
-            line1Window.getWidth() - 1,
-            line1Window.getHeight() - 1,
-            "+",
-            false,
-            BoxStyle.ROUNDED);
+  @Override
+  public void drawBoxedString(
+          int sx, int sy, int ex, int ey, String str, boolean color, BoxStyle boxStyle) {
+    int boxWidth = ex - sx;
+    int boxHeight = ey - sy;
+    int textWidth = str.length() * CHARACTER_WIDTH;
+    int textHeight = CHARACTER_HEIGHT;
+    if (textWidth >= boxWidth) {
+      throw new IllegalArgumentException(
+              "Box too narrow " + describeDimensions(sx, sy, ex, ey, str));
+    }
+    if (textHeight >= boxHeight)
+      throw new IllegalArgumentException(
+              "Box too short " + describeDimensions(sx, sy, ex, ey, str));
+    drawString(
+            sx + boxWidth / 2 - textWidth / 2, sy + boxHeight / 2 - CHARACTER_HEIGHT / 2, str, color);
+    drawBox(sx, sy, ex, ey, boxStyle, color);
+  }
+
+  @Override
+  public void drawBoxedIcon(
+          int sx, int sy, int ex, int ey, Icon icon, boolean color, BoxStyle boxStyle) {
+    int boxWidth = ex - sx;
+    int boxHeight = ey - sy;
+    int iconWidth = icon.getWidth();
+    int iconHeight = icon.getHeight();
+    if (iconWidth >= boxWidth) {
+      throw new IllegalArgumentException(
+              "Box too narrow " + describeIconDimensions(sx, sy, ex, ey, icon));
+    }
+    if (iconHeight >= boxHeight)
+      throw new IllegalArgumentException(
+              "Box too short " + describeIconDimensions(sx, sy, ex, ey, icon));
+    icon.paint(
+            sx + boxWidth / 2 - iconWidth / 2, sy + boxHeight / 2 - iconHeight / 2, painter, color);
+    drawBox(sx, sy, ex, ey, boxStyle, color);
+  }
+
+  @Override
+  public Canvas createWindow(final int wx, final int wy, final int ex, final int ey) {
+    final PaintCanvas parentCanvas = PaintCanvas.this;
+    return new WindowCanvas(parentCanvas, wx, wy, ex, ey);
+  }
+
+  @Override
+  public int getWidth() {
+    return painter.getWidth();
+  }
+
+  @Override
+  public int getHeight() {
+    return painter.getHeight();
+  }
+
+  private String describeIconDimensions(
+          final int sx, final int sy, final int ex, final int ey, final Icon icon) {
+    return "("
+            + sx
+            + ", "
+            + sy
+            + ", "
+            + ex
+            + ", "
+            + ey
+            + "/ "
+            + icon.getWidth()
+            + ", "
+            + icon.getHeight()
+            + ")";
+  }
+
+  private void drawBox(
+          final int sx,
+          final int sy,
+          final int ex,
+          final int ey,
+          final BoxStyle boxStyle,
+          boolean color) {
+    switch (boxStyle) {
+      case EMPTY:
+        break;
+      case DASHED:
+        for (int x = sx; x < ex; x++) {
+          boolean invert = x / 2 % 2 == 0;
+          painter.setPixel(x, sy, invert ^ color);
+          painter.setPixel(x, ey - 1, invert ^ color);
+        }
+        for (int y = sy; y < ey; y++) {
+          boolean invert = y / 2 % 2 == 0;
+          painter.setPixel(sx, y, invert ^ color);
+          painter.setPixel(ex - 1, y, invert ^ color);
+        }
+        break;
+      case SOLID:
+        for (int x = sx; x < ex; x++) {
+          painter.setPixel(x, sy, color);
+          painter.setPixel(x, ey - 1, color);
+        }
+        for (int y = sy; y < ey; y++) {
+          painter.setPixel(sx, y, color);
+          painter.setPixel(ex - 1, y, color);
+        }
+        break;
+      case ROUNDED:
+        painter.setPixel(sx + 1, sy + 1, color);
+        painter.setPixel(ex - 2, sy + 1, color);
+        painter.setPixel(sx + 1, ey - 2, color);
+        painter.setPixel(ex - 2, ey - 2, color);
+        for (int x = sx + 2; x < ex - 2; x++) {
+          painter.setPixel(x, sy, color);
+          painter.setPixel(x, ey - 1, color);
+        }
+        for (int y = sy + 2; y < ey - 2; y++) {
+          painter.setPixel(sx, y, color);
+          painter.setPixel(ex - 1, y, color);
+        }
+        break;
+    }
+  }
+
+  private String describeDimensions(
+          final int sx, final int sy, final int ex, final int ey, final String str) {
+    return "(" + sx + ", " + sy + ", " + ex + ", " + ey + ", " + str.length() + " Characters)";
+  }
+
+  public void drawString(final int px, final int py, final String str, final boolean color) {
+    final ByteBuffer characters = FONT_CHARSET.encode(str);
+    for (int i = 0; i < characters.limit(); i++) {
+      drawCharacter(characters.get(i), px + i * CHARACTER_WIDTH, py, color);
+    }
+  }
+
+  private void drawCharacter(final byte character, final int px, final int py, boolean color) {
+
+    for (int j = 0; j < CHARACTER_HEIGHT + 1; j++) {
+      painter.setPixel(px, py + j, !color);
+      painter.setPixel(CHARACTER_WIDTH + px, py + j, !color);
+    }
+    for (int i = 0; i < CHARACTER_WIDTH - 1; i++) {
+      painter.setPixel(1 + i + px, py, !color);
+      final byte bits = (byte) FONT[(((int) character) & 0xff) * (CHARACTER_WIDTH - 1) + i];
+      for (int j = 0; j < CHARACTER_HEIGHT; j++) {
+        final boolean pixelEnabled = (bits >> j & 1) != 0;
+        final int x = i + px + 1;
+        final int y = j + py + 1;
+        final boolean set = pixelEnabled ^ color;
+        painter.setPixel(x, y, !set);
+      }
+    }
+  }
+
+  public void clear(final boolean inverted) {
+    painter.fill(0, 0, painter.getWidth(), painter.getHeight(), !inverted);
+  }
+
+  public TouchConsumer drawScreen(final List<Renderable> renderables) {
+    clear(false);
+    List<Renderable> selectedRenderables = new ArrayList<>();
+    int consumedHeight = 0;
+    double remainingSpaceWeight = 0;
+    for (Renderable r : renderables) {
+      final int height = r.getMinHeight();
+      if (height + consumedHeight > this.getHeight()) break;
+      selectedRenderables.add(r);
+      consumedHeight += height;
+      remainingSpaceWeight += r.getExpandRatio();
+    }
+    int remainingHeight = this.getHeight() - consumedHeight;
+    double additionalSpaceFactor = remainingHeight / remainingSpaceWeight;
+    int currentStartPos = 0;
+    List<Integer> startRows = new ArrayList<>();
+    for (Renderable r : selectedRenderables) {
+      int componentHeight = (int) (r.getMinHeight() + additionalSpaceFactor * r.getExpandRatio());
+      int endPos = currentStartPos + componentHeight;
+      final Canvas window = this.createWindow(0, currentStartPos, this.getWidth(), endPos);
+      r.render(window);
+      startRows.add(currentStartPos);
+      currentStartPos = endPos;
+    }
+    return (x, y, pressure, age) -> {
+      int foundEntry = startRows.size() - 1;
+      for (int i = 0; i < startRows.size(); i++) {
+        final int currentStartRow = startRows.get(i);
+        if (currentStartRow > y) {
+          foundEntry = i - 1;
+          break;
+        }
+      }
+      if (foundEntry < 0) return;
+      final Renderable renderable = selectedRenderables.get(foundEntry);
+      if (renderable instanceof TouchConsumer) {
+        int elementOffset = startRows.get(foundEntry);
+        ((TouchConsumer) renderable).notifyTouch(x, y - elementOffset, pressure, age);
+      }
+    };
+  }
+
+  private static class WindowCanvas implements Canvas {
+    private final int    width;
+    private final int    height;
+    private final int    wx;
+    private final int    wy;
+    private final Canvas parentCanvas;
+
+    public WindowCanvas(
+            final Canvas parentCanvas, final int wx, final int wy, final int ex, final int ey) {
+      this.wx = wx;
+      this.wy = wy;
+      this.parentCanvas = parentCanvas;
+      width = ex - wx;
+      height = ey - wy;
+    }
+
+    @Override
+    public void drawBoxedString(
+            final int sx,
+            final int sy,
+            final int ex,
+            final int ey,
+            final String str,
+            final boolean color,
+            final BoxStyle boxStyle) {
+      if (sx > width || ey > height || sx < 0 || ey < 0)
+        throw new IllegalArgumentException("Coordinates outside of window");
+      parentCanvas.drawBoxedString(sx + wx, sy + wy, ex + wx, ey + wy, str, color, boxStyle);
+    }
+
+    @Override
+    public void drawBoxedIcon(
+            final int sx,
+            final int sy,
+            final int ex,
+            final int ey,
+            final Icon icon,
+            final boolean color,
+            final BoxStyle boxStyle) {
+      if (sx > width || ey > height || sx < 0 || ey < 0)
+        throw new IllegalArgumentException("Coordinates outside of window");
+      parentCanvas.drawBoxedIcon(sx + wx, sy + wy, ex + wx, ey + wy, icon, color, boxStyle);
+    }
+
+    @Override
+    public Canvas createWindow(final int sx, final int sy, final int ex, final int ey) {
+      if (sx > width || ey > height || sx < 0 || ey < 0)
+        throw new IllegalArgumentException("Coordinates outside of window");
+      return new WindowCanvas(this, sx + wx, sy + wy, ex + wx, ey + wy);
+    }
+
+    @Override
+    public int getWidth() {
+      return width;
+    }
+
+    @Override
+    public int getHeight() {
+      return height;
+    }
   }
 }
