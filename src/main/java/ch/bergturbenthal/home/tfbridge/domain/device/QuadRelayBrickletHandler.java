@@ -82,6 +82,7 @@ public class QuadRelayBrickletHandler implements DeviceHandler {
                              final int outputIndex = heater.getAddress();
                              String heaterPrefix = brickletPrefix + "/heater/" + heater.getId();
                              String targetTemperatureTopic = heaterPrefix + "/target";
+                             String targetTemperatureStateTopic = heaterPrefix + "/targetState";
                              String currentTemperatureTopic = heaterPrefix + "/current";
                              String currentStateTopic = heaterPrefix + "/state";
 
@@ -92,11 +93,15 @@ public class QuadRelayBrickletHandler implements DeviceHandler {
                              AtomicReference<Double> targetTemperature = new AtomicReference<>(21d);
                              final Runnable updater =
                                      () -> {
-                                       boolean on = targetTemperature.get() > currentTemperature.get();
+                                       final Double targetTemp = targetTemperature.get();
+                                       boolean on = targetTemp > currentTemperature.get();
                                        stateConsumer.accept(outputIndex, on);
                                        mqttClient.send(
                                                currentStateTopic,
                                                MqttMessageUtil.createMessage(on ? "heat" : "off", true));
+                                       mqttClient.send(
+                                               targetTemperatureStateTopic,
+                                               MqttMessageUtil.createMessage(Double.toString(targetTemp), false));
                                      };
 
                              configService.registerForConfiguration(
@@ -162,6 +167,7 @@ public class QuadRelayBrickletHandler implements DeviceHandler {
                                                  .unique_id(heater.getId())
                                                  .temperature_command_topic(targetTemperatureTopic)
                                                  .current_temperature_topic(currentTemperatureTopic)
+                                                 .temperature_state_topic(targetTemperatureStateTopic)
                                                  .mode_state_topic(currentStateTopic)
                                                  .modes(Arrays.asList("heat", "off"))
                                                  .min_temp(12)

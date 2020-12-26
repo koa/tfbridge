@@ -20,6 +20,7 @@ public class ClimateConfig implements PublishingConfig {
   int                qos;
   boolean            retain;
   String             temperature_command_topic;
+  String             temperature_state_topic;
   String             temperature_unit;
   Double             temp_step;
   String             unique_id;
