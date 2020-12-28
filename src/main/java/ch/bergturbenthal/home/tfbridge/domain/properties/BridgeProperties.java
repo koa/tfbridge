@@ -20,8 +20,10 @@ public class BridgeProperties {
   private List<WarmColdDmxLight>  warmColdDmxLights;
   private List<SimpleDmxLight>    simpleDmxLights;
   private List<OnOffButtonInput>  onOffButtons;
+  private List<SingleButtonInput> singleButtons;
   private List<PirSensor>         pirSensors;
   private List<TemperatureSensor> temperatureSensors;
   private List<Heater>            heaters;
   private List<TouchDisplay>      touchDisplays;
+  private List<Bell>              bells;
 }
