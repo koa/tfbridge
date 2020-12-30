@@ -1,5 +1,6 @@
 package ch.bergturbenthal.home.tfbridge.domain.service;
 
+import ch.bergturbenthal.home.tfbridge.domain.ha.HasDevice;
 import ch.bergturbenthal.home.tfbridge.domain.ha.PublishingConfig;
 
 public interface ConfigService {
@@ -13,6 +14,9 @@ public interface ConfigService {
 
   <P extends PublishingConfig> void registerForConfiguration(
           Class<P> configType, String id, ConfigurationListener<P> listener);
+
+  <P extends PublishingConfig & HasDevice> void registerForDeviceAndConfiguration(
+          Class<P> configType, String deviceId, ConfigurationListener<P> listener);
 
   interface ConfigurationListener<P extends PublishingConfig> {
     void notifyConfigAdded(P configuration);

@@ -7,7 +7,7 @@ import java.util.List;
 
 @Value
 @Builder
-public class LightConfig implements PublishingConfig {
+public class LightConfig implements PublishingConfig, HasDevice {
   String             platform;
   Device             device;
   List<Availability> availability;

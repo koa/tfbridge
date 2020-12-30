@@ -83,8 +83,6 @@ public class QuadRelayBrickletHandler implements DeviceHandler {
                                       new ConfigService.ConfigurationListener<>() {
                                         @Override
                                         public void notifyConfigAdded(final TriggerConfig configuration) {
-                                          log.info(
-                                                  "Register on " + bell.getName() + ": " + configuration.getTopic());
                                           mqttClient.registerTopic(
                                                   configuration.getTopic(),
                                                   receivedMqttMessage -> {

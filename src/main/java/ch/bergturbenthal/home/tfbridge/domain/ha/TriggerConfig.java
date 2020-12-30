@@ -6,7 +6,7 @@ import lombok.Value;
 
 @Value
 @Builder
-public class TriggerConfig implements PublishingConfig {
+public class TriggerConfig implements PublishingConfig, HasDevice {
   String automation_type;
   String payload;
   String topic;

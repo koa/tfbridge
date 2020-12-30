@@ -1,8 +1,10 @@
 package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
+import ch.bergturbenthal.home.tfbridge.domain.ha.BinarySensorConfig;
 import ch.bergturbenthal.home.tfbridge.domain.ha.Device;
 import ch.bergturbenthal.home.tfbridge.domain.ha.LightConfig;
+import ch.bergturbenthal.home.tfbridge.domain.ha.TriggerConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.properties.SimpleDmxLight;
 import ch.bergturbenthal.home.tfbridge.domain.properties.WarmColdDmxLight;
@@ -16,26 +18,37 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
 @Slf4j
 public class DmxBrickletHandler implements DeviceHandler {
-  private final MqttClient       mqttClient;
-  private final BridgeProperties properties;
-  private final ConfigService    configService;
+  private final MqttClient               mqttClient;
+  private final BridgeProperties         properties;
+  private final ConfigService            configService;
+  private final ScheduledExecutorService executorService;
 
   public DmxBrickletHandler(
-          final MqttClient mqttClient, BridgeProperties properties, final ConfigService configService) {
+          final MqttClient mqttClient,
+          BridgeProperties properties,
+          final ConfigService configService,
+          final ScheduledExecutorService executorService) {
     this.mqttClient = mqttClient;
     this.properties = properties;
     this.configService = configService;
+    this.executorService = executorService;
   }
 
   @Override
@@ -167,7 +180,9 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                currentBrightness,
                                                currentState,
                                                updateValue,
-                                               light.getId());
+                                               light.getId(),
+                                               light.getTriggers(),
+                                               light.getMotionDetectors());
                                        return config;
                                      });
 
@@ -261,7 +276,9 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                  currentBrightness,
                                                  currentState,
                                                  updateValue,
-                                                 light.getId());
+                                                 light.getId(),
+                                                 light.getTriggers(),
+                                                 light.getMotionDetectors());
                                          mqttClient.registerTopic(
                                                  whiteValueTopic,
                                                  message -> {
@@ -303,7 +320,222 @@ public class DmxBrickletHandler implements DeviceHandler {
           final AtomicInteger currentBrightness,
           final AtomicBoolean currentState,
           final Runnable updater,
-          final String id) {
+          final String id,
+          final List<String> triggers,
+          final List<String> motionDetectors) {
+
+    final boolean hasNoMotionDetector =
+            Optional.ofNullable(motionDetectors).map(List::isEmpty).orElse(true);
+    final boolean hasNoTriggers = Optional.ofNullable(triggers).map(List::isEmpty).orElse(true);
+
+    Function<String, Consumer<Disposable>> disposableConsumers =
+            key -> lightConfigurationConsumers.computeIfAbsent(key, k -> new DisposableConsumer());
+
+    final Duration switchOffTimer;
+    if (hasNoMotionDetector) {
+      switchOffTimer = Duration.ofHours(4);
+    } else {
+      switchOffTimer = Duration.ofHours(1);
+    }
+    AtomicReference<ScheduledFuture<?>> switchOffSchedule = new AtomicReference<>();
+    Consumer<ScheduledFuture<?>> handleSwitchOffSchedule =
+            scheduledFuture -> {
+              final ScheduledFuture<?> oldSchedule = switchOffSchedule.getAndSet(scheduledFuture);
+              if (oldSchedule != null && !oldSchedule.isDone()) oldSchedule.cancel(true);
+            };
+
+    Runnable switchOff =
+            () -> {
+              currentState.set(false);
+              updater.run();
+              handleSwitchOffSchedule.accept(null);
+            };
+    Runnable switchOn =
+            () -> {
+              if (currentBrightness.get() < 10) currentBrightness.set(255);
+              currentState.set(true);
+              updater.run();
+              handleSwitchOffSchedule.accept(
+                      executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
+            };
+    Runnable toggle =
+            () -> {
+              while (true) {
+                final boolean valueBefore = currentState.get();
+                if (currentState.compareAndSet(valueBefore, !valueBefore)) {
+                  if (!valueBefore)
+                    currentBrightness.updateAndGet(
+                            brightnessBefore -> brightnessBefore < 10 ? 255 : brightnessBefore);
+                  break;
+                }
+              }
+              updater.run();
+              handleSwitchOffSchedule.accept(
+                      executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
+            };
+    Runnable brighter =
+            () -> {
+              if (!currentState.get()) {
+                currentBrightness.set(0);
+                currentState.set(true);
+              }
+              currentBrightness.updateAndGet(
+                      oldBrightness -> Math.min(Math.max(oldBrightness, 0) + 10, 255));
+              updater.run();
+              handleSwitchOffSchedule.accept(
+                      executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
+            };
+    Runnable darker =
+            () -> {
+              currentBrightness.updateAndGet(
+                      oldBrightness -> Math.max(Math.min(255, oldBrightness) - 10, 0));
+              updater.run();
+              handleSwitchOffSchedule.accept(
+                      executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
+            };
+    Function<TriggerConfig, Consumer<Disposable>> triggerConsumers =
+            key -> disposableConsumers.apply(id + "-trigger-" + key.getDiscovery_id());
+    Function<BinarySensorConfig, Consumer<Disposable>> pirConsumers =
+            key -> disposableConsumers.apply(id + "-trigger-" + key.getUnique_id());
+    AtomicReference<ScheduledFuture<?>> pendingSchedule = new AtomicReference<>();
+    Consumer<ScheduledFuture<?>> handlePendingSchedule =
+            scheduledFuture -> {
+              final ScheduledFuture<?> oldSchedule = pendingSchedule.getAndSet(scheduledFuture);
+              if (oldSchedule != null && !oldSchedule.isDone()) oldSchedule.cancel(true);
+            };
+    Runnable startBrighter =
+            () ->
+                    startRunning(
+                            brighter,
+                            () -> currentBrightness.get() < 255 || !currentState.get(),
+                            handlePendingSchedule);
+    Runnable startDarker =
+            () ->
+                    startRunning(
+                            darker,
+                            () -> currentBrightness.get() > 0 && currentState.get(),
+                            handlePendingSchedule);
+    Runnable stopTimer = () -> handlePendingSchedule.accept(null);
+
+    Optional.ofNullable(triggers).stream()
+            .flatMap(Collection::stream)
+            .forEach(
+                    deviceId -> {
+                      configService.registerForDeviceAndConfiguration(
+                              TriggerConfig.class,
+                              deviceId,
+                              new ConfigService.ConfigurationListener<>() {
+                                @Override
+                                public void notifyConfigAdded(final TriggerConfig configuration) {
+                                  final String type = configuration.getType();
+                                  final String subtype = configuration.getSubtype();
+                                  final String payload = configuration.getPayload();
+                                  final Optional<Runnable> payloadRunnable;
+                                  switch (type) {
+                                    case "button_short_press":
+                                      payloadRunnable = Optional.empty();
+                                      break;
+                                    case "button_short_release":
+                                      switch (subtype) {
+                                        case "turn_on":
+                                          payloadRunnable = Optional.of(switchOn);
+                                          break;
+                                        case "turn_off":
+                                          payloadRunnable = Optional.of(switchOff);
+                                          break;
+                                        default:
+                                          payloadRunnable = Optional.of(toggle);
+                                          break;
+                                      }
+                                      break;
+                                    case "button_long_press":
+                                      switch (subtype) {
+                                        case "turn_on":
+                                          payloadRunnable = Optional.of(startBrighter);
+                                          break;
+                                        case "turn_off":
+                                          payloadRunnable = Optional.of(startDarker);
+                                          break;
+                                        default:
+                                          payloadRunnable = Optional.empty();
+                                          break;
+                                      }
+                                      break;
+                                    case "button_long_release":
+                                      payloadRunnable = Optional.of(stopTimer);
+                                      break;
+                                    default:
+                                      payloadRunnable = Optional.empty();
+                                      break;
+                                  }
+                                  payloadRunnable.ifPresent(
+                                          r ->
+                                                  mqttClient.registerTopic(
+                                                          configuration.getTopic(),
+                                                          message -> {
+                                                            if (payload.equals(
+                                                                    new String(message.getMessage().getPayload()))) {
+                                                              r.run();
+                                                            }
+                                                          },
+                                                          triggerConsumers.apply(configuration)));
+                                }
+
+                                @Override
+                                public void notifyConfigRemoved(final TriggerConfig configuration) {
+                                  triggerConsumers.apply(configuration).accept(null);
+                                }
+                              });
+                    });
+
+    Optional.ofNullable(motionDetectors).stream()
+            .flatMap(Collection::stream)
+            .forEach(
+                    deviceId -> {
+                      configService.registerForDeviceAndConfiguration(
+                              BinarySensorConfig.class,
+                              deviceId,
+                              new ConfigService.ConfigurationListener<>() {
+                                @Override
+                                public void notifyConfigAdded(final BinarySensorConfig configuration) {
+                                  final String payloadOn = configuration.getPayload_on();
+                                  final String payloadOff = configuration.getPayload_off();
+                                  final String topic = configuration.getState_topic();
+                                  mqttClient.registerTopic(
+                                          topic,
+                                          receivedMqttMessage -> {
+                                            final String payload =
+                                                    new String(receivedMqttMessage.getMessage().getPayload());
+                                            if (hasNoTriggers) {
+                                              if (payloadOn.equals(payload)) {
+                                                switchOn.run();
+                                              } else if (payloadOff.equals(payload)) {
+                                                handleSwitchOffSchedule.accept(
+                                                        executorService.schedule(switchOff, 2, TimeUnit.MINUTES));
+                                              }
+                                            } else {
+                                              if (payloadOn.equals(payload)) {
+                                                handleSwitchOffSchedule.accept(
+                                                        executorService.schedule(
+                                                                switchOff,
+                                                                switchOffTimer.getSeconds(),
+                                                                TimeUnit.SECONDS));
+                                              } else if (payloadOff.equals(payload)) {
+                                                handleSwitchOffSchedule.accept(
+                                                        executorService.schedule(switchOff, 1, TimeUnit.HOURS));
+                                              }
+                                            }
+                                          },
+                                          pirConsumers.apply(configuration));
+                                }
+
+                                @Override
+                                public void notifyConfigRemoved(final BinarySensorConfig configuration) {
+                                  pirConsumers.apply(configuration).accept(null);
+                                }
+                              });
+                    });
+
     mqttClient.registerTopic(
             stateTopic,
             message -> {
@@ -313,8 +545,7 @@ public class DmxBrickletHandler implements DeviceHandler {
               currentState.set(state.equals("ON"));
               updater.run();
             },
-            lightConfigurationConsumers.computeIfAbsent(
-                    id + "-state", key -> new DisposableConsumer()));
+            disposableConsumers.apply(id + "-state"));
     mqttClient.registerTopic(
             brightnessTopic,
             message -> {
@@ -324,15 +555,28 @@ public class DmxBrickletHandler implements DeviceHandler {
               currentBrightness.set(Integer.parseInt(state));
               updater.run();
             },
-            lightConfigurationConsumers.computeIfAbsent(
-                    id + "-brightness", key -> new DisposableConsumer()));
+            disposableConsumers.apply(id + "-brightness"));
   }
 
-  private int kelvin2Mireds(final int coldTemperature) {
-    return 1000000 / coldTemperature;
+  private void startRunning(
+          final Runnable action,
+          final Supplier<Boolean> canContinue,
+          final Consumer<ScheduledFuture<?>> handlePendingSchedule) {
+    if (canContinue.get()) {
+      action.run();
+      handlePendingSchedule.accept(
+              executorService.schedule(
+                      () -> startRunning(action, canContinue, handlePendingSchedule),
+                      200,
+                      TimeUnit.MILLISECONDS));
+    }
   }
 
-  private int mireds2Kelvin(final int coldTemperature) {
-    return 1000000 / coldTemperature;
+  private int kelvin2Mireds(final int temperature) {
+    return 1000000 / temperature;
+  }
+
+  private int mireds2Kelvin(final int temperature) {
+    return 1000000 / temperature;
   }
 }

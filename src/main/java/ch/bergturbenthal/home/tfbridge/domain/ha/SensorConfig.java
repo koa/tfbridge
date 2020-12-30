@@ -5,7 +5,7 @@ import lombok.Value;
 
 @Value
 @Builder
-public class SensorConfig implements PublishingConfig {
+public class SensorConfig implements PublishingConfig, HasDevice {
   String  platform;
   Device  device;
   String  device_class;

@@ -5,7 +5,7 @@ import lombok.Value;
 
 @Value
 @Builder
-public class BinarySensorConfig implements PublishingConfig {
+public class BinarySensorConfig implements PublishingConfig, HasDevice {
   Availability availability;
   String       platform;
   Device       device;

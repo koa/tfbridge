@@ -7,7 +7,7 @@ import java.util.List;
 
 @Value
 @Builder
-public class ClimateConfig implements PublishingConfig {
+public class ClimateConfig implements PublishingConfig, HasDevice {
   String             platform;
   List<Availability> availability;
   String             current_temperature_topic;

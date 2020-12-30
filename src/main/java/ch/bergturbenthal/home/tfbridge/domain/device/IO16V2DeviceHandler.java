@@ -226,12 +226,12 @@ public class IO16V2DeviceHandler implements DeviceHandler {
         isLongPressing.set(false);
         final ScheduledFuture<?> schedule =
             executorService.schedule(
-                () -> {
-                  sendMessage("button_long_press");
-                  isLongPressing.set(true);
-                },
-                500,
-                TimeUnit.MILLISECONDS);
+                    () -> {
+                      sendMessage("button_long_press");
+                      isLongPressing.set(true);
+                    },
+                    250,
+                    TimeUnit.MILLISECONDS);
         final ScheduledFuture<?> runningFuture = currentRunningSchedule.getAndSet(schedule);
         if (runningFuture != null && !runningFuture.isDone()) runningFuture.cancel(true);
       } else {
