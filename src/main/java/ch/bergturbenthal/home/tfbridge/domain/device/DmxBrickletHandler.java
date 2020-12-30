@@ -128,6 +128,7 @@ public class DmxBrickletHandler implements DeviceHandler {
                              .map(
                                      light -> {
                                        final String lightPrefix = brickletPrefix + "/light/" + light.getId();
+                                       final String commandTopic = lightPrefix + "/command";
                                        final String stateTopic = lightPrefix + "/state";
                                        final String brightnessTopic = lightPrefix + "/brightness";
                                        final String brightnessStateTopic = lightPrefix + "/brightnessState";
@@ -142,7 +143,8 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                                         .identifiers(Collections.singletonList(light.getId()))
                                                                         .build())
                                                           .unique_id(uid + "/" + light.getId())
-                                                          .command_topic(stateTopic)
+                                                          .command_topic(commandTopic)
+                                                          .state_topic(stateTopic)
                                                           .name(light.getName())
                                                           .brightness_scale(255)
                                                           .brightness_command_topic(brightnessTopic)
@@ -171,11 +173,15 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                  mqttClient.send(
                                                          brightnessStateTopic,
                                                          MqttMessageUtil.createMessage(
-                                                                 String.valueOf(targetBrightness), false));
+                                                                 String.valueOf(targetBrightness), true));
+                                                 mqttClient.send(
+                                                         stateTopic,
+                                                         MqttMessageUtil.createMessage(targetStateOn ? "ON" : "OFF",
+                                                                                       true));
                                                };
                                        registerLight(
                                                lightConfigurationConsumers,
-                                               stateTopic,
+                                               commandTopic,
                                                brightnessTopic,
                                                currentBrightness,
                                                currentState,
@@ -196,6 +202,7 @@ public class DmxBrickletHandler implements DeviceHandler {
                                        light -> {
                                          final String lightPrefix = brickletPrefix + "/light/" + light.getId();
 
+                                         final String commandTopic = lightPrefix + "/command";
                                          final String stateTopic = lightPrefix + "/state";
                                          final String brightnessTopic = lightPrefix + "/brightness";
                                          final String whiteValueTopic = lightPrefix + "/whiteValue";
@@ -213,7 +220,8 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                                           .identifiers(Collections.singletonList(light.getId()))
                                                                           .build())
                                                             .unique_id(uid + "/" + light.getId())
-                                                            .command_topic(stateTopic)
+                                                            .command_topic(commandTopic)
+                                                            .state_topic(stateTopic)
                                                             .name(light.getName())
                                                             .brightness_scale(255)
                                                             .brightness_command_topic(brightnessTopic)
@@ -263,15 +271,19 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                    mqttClient.send(
                                                            brightnessStateTopic,
                                                            MqttMessageUtil.createMessage(
-                                                                   String.valueOf(targetBrightness), false));
+                                                                   String.valueOf(targetBrightness), true));
                                                    mqttClient.send(
                                                            whiteValueStateTopic,
                                                            MqttMessageUtil.createMessage(
-                                                                   String.valueOf(targetWhiteValue), false));
+                                                                   String.valueOf(targetWhiteValue), true));
+                                                   mqttClient.send(
+                                                           stateTopic,
+                                                           MqttMessageUtil.createMessage(targetStateOn ? "ON" : "OFF",
+                                                                                         true));
                                                  };
                                          registerLight(
                                                  lightConfigurationConsumers,
-                                                 stateTopic,
+                                                 commandTopic,
                                                  brightnessTopic,
                                                  currentBrightness,
                                                  currentState,
