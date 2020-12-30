@@ -7,8 +7,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public class RenderableNumber extends AbstractChangeNotifier implements Renderable, TouchConsumer {
-  final         double                            step                = 0.5;
-  final         AtomicReference<Double>           currentValue        = new AtomicReference<>(99.9);
+  private final double                            step;
+  private final AtomicReference<Double>           currentValue        = new AtomicReference<>(99.9);
   private final NumberFormat                      format              = new DecimalFormat("00.0");
   private final Icon                              icon;
   private final AtomicReference<Consumer<Double>> valueChangeListener =
@@ -18,7 +18,9 @@ public class RenderableNumber extends AbstractChangeNotifier implements Renderab
   private final double                            minValue;
   private final double                            maxValue;
 
-  public RenderableNumber(double defaultValue, final Icon icon, double minValue, double maxValue) {
+  public RenderableNumber(
+          double defaultValue, final double step, final Icon icon, double minValue, double maxValue) {
+    this.step = step;
     this.minValue = minValue;
     this.maxValue = maxValue;
     currentValue.set(defaultValue);

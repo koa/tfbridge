@@ -31,10 +31,10 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class MultiplexTfClient implements TfClient {
-  private final BridgeProperties bridgeProperties;
+  private final BridgeProperties            bridgeProperties;
   private final Map<Integer, DeviceHandler> deviceHandlers;
-  private final DiscoveryClient discoveryClient;
-  private Map<URI, IPConnection> runningConnections = new ConcurrentHashMap<>();
+  private final DiscoveryClient             discoveryClient;
+  private final Map<URI, IPConnection>      runningConnections = new ConcurrentHashMap<>();
 
   public MultiplexTfClient(
       final BridgeProperties bridgeProperties,

@@ -10,7 +10,6 @@ import org.eclipse.paho.client.mqttv3.internal.wire.MqttWireMessage;
 import org.eclipse.paho.client.mqttv3.persist.MqttDefaultFilePersistence;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
@@ -34,7 +33,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
-@RefreshScope
+// @RefreshScope
 public class PahoMqttClient implements MqttClient {
   private static final Pattern                                 SPLIT_PATTERN    = Pattern.compile(Pattern.quote("/"));
   private final        Map<String, RegisteredListeners>        registeredSinks  = new ConcurrentHashMap<>();
@@ -304,16 +303,16 @@ public class PahoMqttClient implements MqttClient {
                         if (existingSubscriptions != null) {
                           existingSubscriptions.getListeners().add(sink);
                         } else {
-                  final Collection<FluxSink<ReceivedMqttMessage>> newSubscriptions =
-                      new ConcurrentLinkedDeque<>();
+                          final Collection<FluxSink<ReceivedMqttMessage>> newSubscriptions =
+                                  new ConcurrentLinkedDeque<>();
 
-                  final RegisteredListeners newListeners =
-                      new RegisteredListeners(topicPattern, newSubscriptions);
-                  registeredSinks.put(topic, newListeners);
-                  newSubscriptions.add(sink);
-                  runningClients
-                      .values()
-                      .forEach(
+                          final RegisteredListeners newListeners =
+                                  new RegisteredListeners(topicPattern, newSubscriptions);
+                          registeredSinks.put(topic, newListeners);
+                          newSubscriptions.add(sink);
+                          runningClients
+                                  .values()
+                                  .forEach(
                           client -> {
                             try {
                               if (client.isConnected()) client.subscribe(topic, 1);

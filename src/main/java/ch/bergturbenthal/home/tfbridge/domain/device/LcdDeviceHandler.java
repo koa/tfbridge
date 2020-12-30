@@ -2,6 +2,7 @@ package ch.bergturbenthal.home.tfbridge.domain.device;
 
 import ch.bergturbenthal.home.tfbridge.domain.client.MqttClient;
 import ch.bergturbenthal.home.tfbridge.domain.ha.ClimateConfig;
+import ch.bergturbenthal.home.tfbridge.domain.ha.LightConfig;
 import ch.bergturbenthal.home.tfbridge.domain.ha.SensorConfig;
 import ch.bergturbenthal.home.tfbridge.domain.properties.BridgeProperties;
 import ch.bergturbenthal.home.tfbridge.domain.properties.TouchDisplay;
@@ -97,68 +98,79 @@ public class LcdDeviceHandler implements DeviceHandler {
     DisposableConsumer sensorRegistration = new DisposableConsumer();
     AtomicReference<Runnable> refreshHeaters = new AtomicReference<>(() -> {
     });
+    AtomicReference<Runnable> refreshWhiteValues = new AtomicReference<>(() -> {
+    });
 
-    final List<HeaterEntry> heaterEntryList =
+    final Optional<TouchDisplay> touchDisplay =
             Optional.ofNullable(touchDisplays)
                     .flatMap(
                             displays ->
-                                    displays.stream().filter(disp -> disp.getBricklet().equals(uid)).findAny())
+                                    displays.stream().filter(disp -> disp.getBricklet().equals(uid)).findAny());
+    touchDisplay.ifPresent(
+            display -> {
+              final String temperatureId = display.getTemperatureId();
+              AtomicReference<SensorConfig> attachedTempSensorConfig = new AtomicReference<>();
+              configService.registerForConfiguration(
+                      SensorConfig.class,
+                      temperatureId,
+                      new ConfigService.ConfigurationListener<>() {
+                        @Override
+                        public void notifyConfigAdded(final SensorConfig configuration) {
+                          attachedTempSensorConfig.set(configuration);
+                          mqttClient.registerTopic(
+                                  configuration.getState_topic(),
+                                  message -> {
+                                    try {
+                                      final double currentValue =
+                                              Double.parseDouble(new String(message.getMessage().getPayload()));
+                                      currentTempBox.setText(temperatureFormat.format(currentValue));
+                                    } catch (RuntimeException ex) {
+                                      log.warn("Cannot decode current temperature", ex);
+                                    }
+                                  },
+                                  sensorRegistration);
+                          refreshHeaters.get().run();
+                        }
+
+                        @Override
+                        public void notifyConfigRemoved(final SensorConfig configuration) {
+                          final SensorConfig currentConfig = attachedTempSensorConfig.get();
+                          if (ObjectUtils.nullSafeEquals(currentConfig, configuration))
+                            sensorRegistration.accept(null);
+                          refreshHeaters.get().run();
+                        }
+                      });
+            });
+    final List<DoubleNumberEntry> whiteBalanceEntries =
+            touchDisplay
                     .map(
                             display -> {
-                              final String temperatureId = display.getTemperatureId();
-                              AtomicReference<SensorConfig> attachedTempSensorConfig = new AtomicReference<>();
-                              configService.registerForConfiguration(
-                                      SensorConfig.class,
-                                      temperatureId,
-                                      new ConfigService.ConfigurationListener<>() {
-                                        @Override
-                                        public void notifyConfigAdded(final SensorConfig configuration) {
-                                          attachedTempSensorConfig.set(configuration);
-                                          mqttClient.registerTopic(
-                                                  configuration.getState_topic(),
-                                                  message -> {
-                                                    try {
-                                                      final double currentValue =
-                                                              Double.parseDouble(
-                                                                      new String(message.getMessage().getPayload()));
-                                                      currentTempBox.setText(temperatureFormat.format(currentValue));
-                                                    } catch (RuntimeException ex) {
-                                                      log.warn("Cannot decode current temperature", ex);
-                                                    }
-                                                  },
-                                                  sensorRegistration);
-                                          refreshHeaters.get().run();
-                                        }
-
-                                        @Override
-                                        public void notifyConfigRemoved(final SensorConfig configuration) {
-                                          final SensorConfig currentConfig = attachedTempSensorConfig.get();
-                                          if (ObjectUtils.nullSafeEquals(currentConfig, configuration))
-                                            sensorRegistration.accept(null);
-                                          refreshHeaters.get().run();
-                                        }
-                                      });
-                              return Optional.ofNullable(display.getHeaters()).stream()
+                              return Optional.ofNullable(display.getLightWhiteBalance()).stream()
                                              .flatMap(Collection::stream)
                                              .map(
-                                                     heaterConfig -> {
-                                                       HeaterEntry heaterEntry = new HeaterEntry();
-                                                       AtomicReference<ClimateConfig> currentConfig = new AtomicReference<>();
+                                                     lightConfig -> {
+                                                       DoubleNumberEntry doubleNumberEntry = new DoubleNumberEntry();
+                                                       AtomicReference<LightConfig> currentConfig = new AtomicReference<>();
                                                        final Consumer<Disposable> disposableConsumer =
                                                                new DisposableConsumer();
-                                                       configService.registerForConfiguration(
-                                                               ClimateConfig.class,
-                                                               heaterConfig,
+
+                                                       configService.registerForDeviceAndConfiguration(
+                                                               LightConfig.class,
+                                                               lightConfig,
                                                                new ConfigService.ConfigurationListener<>() {
                                                                  @Override
-                                                                 public void notifyConfigAdded(final ClimateConfig configuration) {
+                                                                 public void notifyConfigAdded(final LightConfig configuration) {
                                                                    currentConfig.set(configuration);
-                                                                   final String topic =
-                                                                           configuration.getTemperature_command_topic();
-                                                                   heaterEntry.getValueTopic()
-                                                                              .set(Optional.ofNullable(topic));
+                                                                   final String colorTempStateTopic =
+                                                                           configuration.getColor_temp_state_topic();
+                                                                   final String colorTempCommandTopic =
+                                                                           configuration.getColor_temp_command_topic();
+                                                                   doubleNumberEntry
+                                                                           .getValueTopic()
+                                                                           .set(Optional.ofNullable(
+                                                                                   colorTempCommandTopic));
                                                                    mqttClient.registerTopic(
-                                                                           topic,
+                                                                           colorTempStateTopic,
                                                                            receivedMqttMessage -> {
                                                                              try {
                                                                                final double currentValue =
@@ -167,35 +179,106 @@ public class LcdDeviceHandler implements DeviceHandler {
                                                                                                        receivedMqttMessage
                                                                                                                .getMessage()
                                                                                                                .getPayload()));
-                                                                               heaterEntry
+                                                                               doubleNumberEntry
                                                                                        .getCurrentValue()
                                                                                        .set(Optional.of(currentValue));
-                                                                               refreshHeaters.get().run();
+                                                                               refreshWhiteValues.get().run();
                                                                              } catch (RuntimeException ex) {
                                                                                log.error("Cannot parse message", ex);
-                                                                               heaterEntry.getCurrentValue()
-                                                                                          .set(Optional.empty());
+                                                                               doubleNumberEntry
+                                                                                       .getCurrentValue()
+                                                                                       .set(Optional.empty());
                                                                              }
                                                                            },
                                                                            disposableConsumer);
                                                                  }
 
                                                                  @Override
-                                                                 public void notifyConfigRemoved(
-                                                                         final ClimateConfig configuration) {
+                                                                 public void notifyConfigRemoved(final LightConfig configuration) {
                                                                    if (Objects.equals(currentConfig.get(),
                                                                                       configuration)) {
-                                                                     heaterEntry.getValueTopic().set(Optional.empty());
-                                                                     heaterEntry.getCurrentValue()
-                                                                                .set(Optional.empty());
+                                                                     doubleNumberEntry.getValueTopic()
+                                                                                      .set(Optional.empty());
+                                                                     doubleNumberEntry.getCurrentValue()
+                                                                                      .set(Optional.empty());
                                                                      disposableConsumer.accept(null);
                                                                    }
                                                                  }
                                                                });
-                                                       return heaterEntry;
+                                                       return doubleNumberEntry;
                                                      })
                                              .collect(Collectors.toList());
                             })
+                    .orElse(Collections.emptyList());
+
+    final List<DoubleNumberEntry> heaterEntryList =
+            touchDisplay
+                    .map(
+                            display ->
+                                    Optional.ofNullable(display.getHeaters()).stream()
+                                            .flatMap(Collection::stream)
+                                            .map(
+                                                    heaterConfig -> {
+                                                      DoubleNumberEntry doubleNumberEntry = new DoubleNumberEntry();
+                                                      AtomicReference<ClimateConfig> currentConfig =
+                                                              new AtomicReference<>();
+                                                      final Consumer<Disposable> disposableConsumer =
+                                                              new DisposableConsumer();
+                                                      configService.registerForConfiguration(
+                                                              ClimateConfig.class,
+                                                              heaterConfig,
+                                                              new ConfigService.ConfigurationListener<>() {
+                                                                @Override
+                                                                public void notifyConfigAdded(
+                                                                        final ClimateConfig configuration) {
+                                                                  currentConfig.set(configuration);
+                                                                  final String topic =
+                                                                          configuration.getTemperature_command_topic();
+                                                                  final String stateTopic =
+                                                                          configuration.getTemperature_state_topic();
+                                                                  doubleNumberEntry
+                                                                          .getValueTopic()
+                                                                          .set(Optional.ofNullable(topic));
+                                                                  mqttClient.registerTopic(
+                                                                          stateTopic,
+                                                                          receivedMqttMessage -> {
+                                                                            try {
+                                                                              final double currentValue =
+                                                                                      Double.parseDouble(
+                                                                                              new String(
+                                                                                                      receivedMqttMessage
+                                                                                                              .getMessage()
+                                                                                                              .getPayload()));
+                                                                              doubleNumberEntry
+                                                                                      .getCurrentValue()
+                                                                                      .set(Optional.of(currentValue));
+                                                                              refreshHeaters.get().run();
+                                                                            } catch (RuntimeException ex) {
+                                                                              log.error("Cannot parse message", ex);
+                                                                              doubleNumberEntry
+                                                                                      .getCurrentValue()
+                                                                                      .set(Optional.empty());
+                                                                            }
+                                                                          },
+                                                                          disposableConsumer);
+                                                                }
+
+                                                                @Override
+                                                                public void notifyConfigRemoved(
+                                                                        final ClimateConfig configuration) {
+                                                                  if (Objects.equals(currentConfig.get(),
+                                                                                     configuration)) {
+                                                                    doubleNumberEntry.getValueTopic()
+                                                                                     .set(Optional.empty());
+                                                                    doubleNumberEntry.getCurrentValue()
+                                                                                     .set(Optional.empty());
+                                                                    disposableConsumer.accept(null);
+                                                                  }
+                                                                }
+                                                              });
+                                                      return doubleNumberEntry;
+                                                    })
+                                            .collect(Collectors.toList()))
                     .orElse(Collections.emptyList());
 
     Display brickletDisplay =
@@ -371,12 +454,43 @@ public class LcdDeviceHandler implements DeviceHandler {
 
     renderables.add(clock);
     renderables.add(currentTempBox);
+    if (!whiteBalanceEntries.isEmpty()) {
+      RenderableNumber targetWhiteValue =
+              new RenderableNumber(99.9, 30, Icons.COLOR_ICON, 133, 370);
+      targetWhiteValue.setValueChangeListener(
+              newValue -> {
+                //log.info("Wv update: " + newValue);
+                whiteBalanceEntries.stream()
+                                   .map(DoubleNumberEntry::getValueTopic)
+                                   .map(AtomicReference::get)
+                                   .filter(Optional::isPresent)
+                                   .map(Optional::get)
+                                   .forEach(
+                                           topic -> {
+                                             //        log.info("White value: " + newValue + " -> " + topic);
+                                             mqttClient.send(
+                                                     topic,
+                                                     MqttMessageUtil.createMessage(Long.toString(Math.round(newValue)),
+                                                                                   true));
+                                           });
+              });
+      refreshWhiteValues.set(
+              () ->
+                      whiteBalanceEntries.stream()
+                                         .map(DoubleNumberEntry::getCurrentValue)
+                                         .map(AtomicReference::get)
+                                         .filter(Optional::isPresent)
+                                         .mapToDouble(Optional::get)
+                                         .average()
+                                         .ifPresent(targetWhiteValue::setValue));
+      renderables.add(targetWhiteValue);
+    }
     if (!heaterEntryList.isEmpty()) {
-      RenderableNumber targetTemperature = new RenderableNumber(99.9, null, 15, 25);
+      RenderableNumber targetTemperature = new RenderableNumber(99.9, 0.5, null, 15, 25);
       targetTemperature.setValueChangeListener(
               newValue ->
                       heaterEntryList.stream()
-                                     .map(HeaterEntry::getValueTopic)
+                                     .map(DoubleNumberEntry::getValueTopic)
                                      .map(AtomicReference::get)
                                      .filter(Optional::isPresent)
                                      .map(Optional::get)
@@ -389,7 +503,7 @@ public class LcdDeviceHandler implements DeviceHandler {
       refreshHeaters.set(
               () ->
                       heaterEntryList.stream()
-                                     .map(HeaterEntry::getCurrentValue)
+                                     .map(DoubleNumberEntry::getCurrentValue)
                                      .map(AtomicReference::get)
                                      .filter(Optional::isPresent)
                                      .mapToDouble(Optional::get)
@@ -435,7 +549,7 @@ public class LcdDeviceHandler implements DeviceHandler {
   }
 
   @Value
-  private static class HeaterEntry {
+  private static class DoubleNumberEntry {
     AtomicReference<Optional<Double>> currentValue = new AtomicReference<>(Optional.empty());
     AtomicReference<Optional<String>> valueTopic   = new AtomicReference<>(Optional.empty());
   }

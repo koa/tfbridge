@@ -315,13 +315,13 @@ public class TestJava2D {
     currentTemperatureRenderer.setText("24.5°");
     // currentTemperatureRenderer.render(canvas.createWindow(0, 16, 64, 40));
 
-    final RenderableNumber brightSelection = new RenderableNumber(255, Icons.BRIGHT_ICON, 1, 2);
+    final RenderableNumber brightSelection = new RenderableNumber(255, 0.5, Icons.BRIGHT_ICON, 1, 2);
     // brightSelection.render(canvas.createWindow(0, 51, 64, 66));
 
-    final RenderableNumber colorSelection = new RenderableNumber(255, Icons.COLOR_ICON, 1, 2);
+    final RenderableNumber colorSelection = new RenderableNumber(255, 0.5, Icons.COLOR_ICON, 1, 2);
     // colorSelection.render(canvas.createWindow(0, 79, 64, 94));
 
-    final RenderableNumber renderableNumber = new RenderableNumber(24.0, null, 15, 30);
+    final RenderableNumber renderableNumber = new RenderableNumber(24.0, 0.5, null, 15, 30);
 
     // renderableNumber.render(canvas.createWindow(0, 106, 64, 121));
 

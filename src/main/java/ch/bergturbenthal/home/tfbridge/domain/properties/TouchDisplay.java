@@ -11,4 +11,6 @@ public class TouchDisplay {
   String       bricklet;
   String       temperatureId;
   List<String> heaters;
+  List<String> lightBrightness;
+  List<String> lightWhiteBalance;
 }

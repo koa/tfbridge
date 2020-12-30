@@ -358,50 +358,48 @@ public class DmxBrickletHandler implements DeviceHandler {
 
     Runnable switchOff =
             () -> {
-              currentState.set(false);
-              updater.run();
+              mqttClient.send(stateTopic, MqttMessageUtil.createMessage("OFF", true));
               handleSwitchOffSchedule.accept(null);
             };
     Runnable switchOn =
             () -> {
-              if (currentBrightness.get() < 10) currentBrightness.set(255);
-              currentState.set(true);
-              updater.run();
+              if (currentBrightness.get() < 10)
+                mqttClient.send(brightnessTopic, MqttMessageUtil.createMessage("255", true));
+              mqttClient.send(stateTopic, MqttMessageUtil.createMessage("ON", true));
               handleSwitchOffSchedule.accept(
                       executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
             };
     Runnable toggle =
             () -> {
-              while (true) {
-                final boolean valueBefore = currentState.get();
-                if (currentState.compareAndSet(valueBefore, !valueBefore)) {
-                  if (!valueBefore)
-                    currentBrightness.updateAndGet(
-                            brightnessBefore -> brightnessBefore < 10 ? 255 : brightnessBefore);
-                  break;
-                }
-              }
-              updater.run();
+              final boolean valueBefore = currentState.get();
+              mqttClient.send(
+                      stateTopic, MqttMessageUtil.createMessage(valueBefore ? "OFF" : "ON", true));
+              if (!valueBefore && currentBrightness.get() < 10)
+                mqttClient.send(brightnessTopic, MqttMessageUtil.createMessage("255", true));
               handleSwitchOffSchedule.accept(
                       executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
             };
     Runnable brighter =
             () -> {
-              if (!currentState.get()) {
-                currentBrightness.set(0);
-                currentState.set(true);
+              final int brightnessBefore = currentBrightness.get();
+              final boolean stateBefore = currentState.get();
+              if (!stateBefore) {
+                mqttClient.send(brightnessTopic, MqttMessageUtil.createMessage("10", true));
+                mqttClient.send(stateTopic, MqttMessageUtil.createMessage("ON", true));
+              } else {
+                final int v = Math.min(Math.max(brightnessBefore, 0) + 10, 255);
+                mqttClient.send(
+                        brightnessTopic, MqttMessageUtil.createMessage(Integer.toString(v), true));
               }
-              currentBrightness.updateAndGet(
-                      oldBrightness -> Math.min(Math.max(oldBrightness, 0) + 10, 255));
-              updater.run();
               handleSwitchOffSchedule.accept(
                       executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
             };
     Runnable darker =
             () -> {
-              currentBrightness.updateAndGet(
-                      oldBrightness -> Math.max(Math.min(255, oldBrightness) - 10, 0));
-              updater.run();
+              final int brightnessBefore = currentBrightness.get();
+              final int v = Math.max(Math.min(255, brightnessBefore) - 10, 0);
+              mqttClient.send(
+                      brightnessTopic, MqttMessageUtil.createMessage(Integer.toString(v), true));
               handleSwitchOffSchedule.accept(
                       executorService.schedule(switchOff, switchOffTimer.getSeconds(), TimeUnit.SECONDS));
             };
