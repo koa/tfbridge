@@ -150,6 +150,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
                             .filter(b1 -> b1.getIo16Bricklet().equals(uid))
                             .flatMap(
                                     singleButtonInput -> {
+                                      log.info("Publish " + singleButtonInput.getId());
                                       try {
                                         String buttonPrefix1 =
                                                 brickletPrefix + "/button/" + singleButtonInput.getId();
@@ -158,7 +159,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
                                         bricklet.setConfiguration(address, 'i', true);
                                         bricklet.setInputValueCallbackConfiguration(address, 5, true);
                                         buttonConsumers[address] = new ButtonHandler(buttonTopic);
-                                        final Device device1 =
+                                        final Device device =
                                                 Device.builder()
                                                       .identifiers(
                                                               Collections.singletonList(singleButtonInput.getId()))
@@ -181,7 +182,7 @@ public class IO16V2DeviceHandler implements DeviceHandler {
                                                                return TriggerConfig.builder()
                                                                                    .automation_type("trigger")
                                                                                    .topic(buttonTopic)
-                                                                                   .device(device1)
+                                                                                   .device(device)
                                                                                    .payload(event1)
                                                                                    .type(event1)
                                                                                    .subtype(subType1)
@@ -225,13 +226,13 @@ public class IO16V2DeviceHandler implements DeviceHandler {
         sendMessage("button_short_press");
         isLongPressing.set(false);
         final ScheduledFuture<?> schedule =
-            executorService.schedule(
-                    () -> {
-                      sendMessage("button_long_press");
-                      isLongPressing.set(true);
-                    },
-                    250,
-                    TimeUnit.MILLISECONDS);
+                executorService.schedule(
+                        () -> {
+                          sendMessage("button_long_press");
+                          isLongPressing.set(true);
+                        },
+                        250,
+                        TimeUnit.MILLISECONDS);
         final ScheduledFuture<?> runningFuture = currentRunningSchedule.getAndSet(schedule);
         if (runningFuture != null && !runningFuture.isDone()) runningFuture.cancel(true);
       } else {

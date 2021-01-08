@@ -37,13 +37,13 @@ public class MultiplexTfClient implements TfClient {
   private final Map<URI, IPConnection>      runningConnections = new ConcurrentHashMap<>();
 
   public MultiplexTfClient(
-      final BridgeProperties bridgeProperties,
-      final List<DeviceHandler> deviceHandlerList,
-      DiscoveryClient discoveryClient) {
+          final BridgeProperties bridgeProperties,
+          final List<DeviceHandler> deviceHandlerList,
+          DiscoveryClient discoveryClient) {
     this.bridgeProperties = bridgeProperties;
     deviceHandlers =
-        deviceHandlerList.stream()
-            .collect(Collectors.toMap(DeviceHandler::deviceId, Function.identity()));
+            deviceHandlerList.stream()
+                             .collect(Collectors.toMap(DeviceHandler::deviceId, Function.identity()));
 
     this.discoveryClient = discoveryClient;
     discover();

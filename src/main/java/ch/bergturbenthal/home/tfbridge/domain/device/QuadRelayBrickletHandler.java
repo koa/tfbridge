@@ -75,37 +75,42 @@ public class QuadRelayBrickletHandler implements DeviceHandler {
                             bell -> {
                               final int outputIndex = bell.getAddress();
                               DisposableConsumer disposableConsumer = new DisposableConsumer();
-                              final String keyId = bell.getKeyId() + "_button_short_release";
-                              // log.info("Lookup for " + keyId);
-                              configService.registerForConfiguration(
+                              AtomicReference<TriggerConfig> acceptedConfiguration = new AtomicReference<>();
+                              configService.registerForDeviceAndConfiguration(
                                       TriggerConfig.class,
-                                      keyId,
+                                      bell.getKeyId(),
                                       new ConfigService.ConfigurationListener<>() {
                                         @Override
                                         public void notifyConfigAdded(final TriggerConfig configuration) {
-                                          mqttClient.registerTopic(
-                                                  configuration.getTopic(),
-                                                  receivedMqttMessage -> {
-                                                    final String message =
-                                                            new String(receivedMqttMessage.getMessage().getPayload());
-                                                    // log.info("Message on " + bell.getName() + ": " + message);
-                                                    if (message.equals(configuration.getPayload())) {
-                                                      try {
-                                                        bricklet.setMonoflop(outputIndex, true, 1000);
-                                                      } catch (TinkerforgeException e) {
-                                                        log.error(
-                                                                "Cannot set monoflop " + outputIndex + " of " + uid, e);
+                                          final String type = configuration.getType();
+                                          if (type.equals("button_short_press")) {
+                                            acceptedConfiguration.set(configuration);
+                                            mqttClient.registerTopic(
+                                                    configuration.getTopic(),
+                                                    receivedMqttMessage -> {
+                                                      final String message =
+                                                              new String(receivedMqttMessage.getMessage().getPayload());
+                                                      if (message.equals(configuration.getPayload())) {
+                                                        try {
+                                                          bricklet.setMonoflop(outputIndex, true, 1000);
+                                                        } catch (TinkerforgeException e) {
+                                                          log.error(
+                                                                  "Cannot set monoflop " + outputIndex + " of " + uid,
+                                                                  e);
+                                                        }
                                                       }
-                                                    }
-                                                  },
-                                                  disposableConsumer);
+                                                    },
+                                                    disposableConsumer);
+                                          }
                                         }
 
                                         @Override
                                         public void notifyConfigRemoved(final TriggerConfig configuration) {
-                                          disposableConsumer.accept(null);
+                                          if (Objects.equals(acceptedConfiguration.get(), configuration))
+                                            disposableConsumer.accept(null);
                                         }
                                       });
+                              ;
                               return disposableConsumer;
                             })
                     .collect(Collectors.toList());

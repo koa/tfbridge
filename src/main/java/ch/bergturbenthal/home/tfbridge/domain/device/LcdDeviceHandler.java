@@ -332,11 +332,7 @@ public class LcdDeviceHandler implements DeviceHandler {
                 brickletDisplay.setBackgroundEnabled(true);
                 backlightOffTimer.set(
                         scheduledExecutorService.schedule(
-                                () -> {
-                                  brickletDisplay.setBackgroundEnabled(false);
-                                },
-                                2,
-                                TimeUnit.MINUTES));
+                                () -> brickletDisplay.setBackgroundEnabled(false), 2, TimeUnit.MINUTES));
               } else {
                 currentTouchConsumer.get().notifyTouch(y, 127 - x, pressure, age);
               }
@@ -459,7 +455,7 @@ public class LcdDeviceHandler implements DeviceHandler {
               new RenderableNumber(99.9, 30, Icons.COLOR_ICON, 133, 370);
       targetWhiteValue.setValueChangeListener(
               newValue -> {
-                //log.info("Wv update: " + newValue);
+                // log.info("Wv update: " + newValue);
                 whiteBalanceEntries.stream()
                                    .map(DoubleNumberEntry::getValueTopic)
                                    .map(AtomicReference::get)
@@ -513,21 +509,27 @@ public class LcdDeviceHandler implements DeviceHandler {
       renderables.add(targetTemperature);
     }
 
+    final SinglePendingSchedulerConsumer schedulerConsumer = new SinglePendingSchedulerConsumer();
+    Object lock = new Object();
+    Runnable drawNewScreen =
+            () -> {
+              synchronized (lock) {
+                currentTouchConsumer.set(paintCanvas.drawScreen(renderables));
+                brickletDisplay.drawBuffer();
+              }
+            };
+    final ChangeListener changeListener =
+            () ->
+                    schedulerConsumer.accept(
+                            scheduledExecutorService.schedule(drawNewScreen, 100, TimeUnit.MILLISECONDS));
+
     renderables.stream()
                .filter(r -> r instanceof ChangeNotifier)
                .map(r -> (ChangeNotifier) r)
-               .forEach(
-                       notifier -> {
-                         notifier.addChangeListener(
-                                 () -> {
-                                   currentTouchConsumer.set(paintCanvas.drawScreen(renderables));
-                                   brickletDisplay.drawBuffer();
-                                 });
-                       });
+               .forEach(notifier -> notifier.addChangeListener(changeListener));
 
-    currentTouchConsumer.set(paintCanvas.drawScreen(renderables));
-    brickletDisplay.drawBuffer();
     brickletDisplay.setBackgroundEnabled(false);
+    changeListener.notifyChange();
 
     return () -> {
       mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);

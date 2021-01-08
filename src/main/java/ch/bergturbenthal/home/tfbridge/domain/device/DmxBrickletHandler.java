@@ -179,13 +179,18 @@ public class DmxBrickletHandler implements DeviceHandler {
                                                          MqttMessageUtil.createMessage(targetStateOn ? "ON" : "OFF",
                                                                                        true));
                                                };
+                                       final SinglePendingSchedulerConsumer singlePendingSchedulerConsumer =
+                                               new SinglePendingSchedulerConsumer();
                                        registerLight(
                                                lightConfigurationConsumers,
                                                commandTopic,
                                                brightnessTopic,
                                                currentBrightness,
                                                currentState,
-                                               updateValue,
+                                               () ->
+                                                       singlePendingSchedulerConsumer.accept(
+                                                               executorService.schedule(
+                                                                       updateValue, 100, TimeUnit.MILLISECONDS)),
                                                light.getId(),
                                                light.getTriggers(),
                                                light.getMotionDetectors());
@@ -235,52 +240,74 @@ public class DmxBrickletHandler implements DeviceHandler {
                                          AtomicInteger currentBrightness = new AtomicInteger(0);
                                          AtomicBoolean currentState = new AtomicBoolean(false);
                                          AtomicInteger whiteValue = new AtomicInteger(warmMireds + coldMireds / 2);
+                                         final SinglePendingSchedulerConsumer singlePendingSchedulerConsumer =
+                                                 new SinglePendingSchedulerConsumer();
                                          Runnable updateValue =
-                                                 () -> {
-                                                   final int targetBrightness = currentBrightness.get();
-                                                   final int targetWhiteValue = whiteValue.get();
-                                                   final boolean targetStateOn = currentState.get();
-                                                   updateConsumer.accept(
-                                                           currentChannelValues.updateAndGet(
-                                                                   oldValues -> {
-                                                                     final int brightness = targetStateOn ? targetBrightness : 0;
-                                                                     int warmPart = targetWhiteValue - coldMireds;
-                                                                     int coldPart = warmMireds - targetWhiteValue;
-                                                                     final int coldValue;
-                                                                     final int warmValue;
-                                                                     if (coldPart > warmPart) {
-                                                                       coldValue = brightness;
-                                                                       warmValue = brightness * warmPart / coldPart;
-                                                                     } else {
-                                                                       warmValue = brightness;
-                                                                       coldValue = brightness * coldPart / warmPart;
-                                                                     }
-                                                                     final int coldAddress = light.getColdAddress();
-                                                                     final int warmAddress = light.getWarmAddress();
-                                                                     int maxAddress = Math.max(coldAddress,
-                                                                                               warmAddress);
-                                                                     final ArrayList<Integer> newValues =
-                                                                             new ArrayList<>(oldValues);
-                                                                     while (newValues.size() <= maxAddress) {
-                                                                       newValues.add(0);
-                                                                     }
-                                                                     newValues.set(coldAddress, coldValue);
-                                                                     newValues.set(warmAddress, warmValue);
-                                                                     return Collections.unmodifiableList(newValues);
-                                                                   }));
-                                                   mqttClient.send(
-                                                           brightnessStateTopic,
-                                                           MqttMessageUtil.createMessage(
-                                                                   String.valueOf(targetBrightness), true));
-                                                   mqttClient.send(
-                                                           whiteValueStateTopic,
-                                                           MqttMessageUtil.createMessage(
-                                                                   String.valueOf(targetWhiteValue), true));
-                                                   mqttClient.send(
-                                                           stateTopic,
-                                                           MqttMessageUtil.createMessage(targetStateOn ? "ON" : "OFF",
-                                                                                         true));
-                                                 };
+                                                 () ->
+                                                         singlePendingSchedulerConsumer.accept(
+                                                                 executorService.schedule(
+                                                                         () -> {
+                                                                           final int targetBrightness = currentBrightness
+                                                                                   .get();
+                                                                           final int targetWhiteValue = whiteValue.get();
+                                                                           final boolean targetStateOn = currentState.get();
+                                                                           updateConsumer.accept(
+                                                                                   currentChannelValues.updateAndGet(
+                                                                                           oldValues -> {
+                                                                                             final int brightness =
+                                                                                                     targetStateOn ? targetBrightness : 0;
+                                                                                             int warmPart = targetWhiteValue - coldMireds;
+                                                                                             int coldPart = warmMireds - targetWhiteValue;
+                                                                                             final int coldValue;
+                                                                                             final int warmValue;
+                                                                                             if (coldPart > warmPart) {
+                                                                                               coldValue = brightness;
+                                                                                               warmValue = brightness * warmPart / coldPart;
+                                                                                             } else {
+                                                                                               warmValue = brightness;
+                                                                                               coldValue = brightness * coldPart / warmPart;
+                                                                                             }
+                                                                                             final int coldAddress = light
+                                                                                                     .getColdAddress();
+                                                                                             final int warmAddress = light
+                                                                                                     .getWarmAddress();
+                                                                                             int maxAddress =
+                                                                                                     Math.max(
+                                                                                                             coldAddress,
+                                                                                                             warmAddress);
+                                                                                             final ArrayList<Integer> newValues =
+                                                                                                     new ArrayList<>(
+                                                                                                             oldValues);
+                                                                                             while (newValues.size() <= maxAddress) {
+                                                                                               newValues.add(0);
+                                                                                             }
+                                                                                             newValues.set(coldAddress,
+                                                                                                           coldValue);
+                                                                                             newValues.set(warmAddress,
+                                                                                                           warmValue);
+                                                                                             return Collections.unmodifiableList(
+                                                                                                     newValues);
+                                                                                           }));
+                                                                           mqttClient.send(
+                                                                                   brightnessStateTopic,
+                                                                                   MqttMessageUtil.createMessage(
+                                                                                           String.valueOf(
+                                                                                                   targetBrightness),
+                                                                                           true));
+                                                                           mqttClient.send(
+                                                                                   whiteValueStateTopic,
+                                                                                   MqttMessageUtil.createMessage(
+                                                                                           String.valueOf(
+                                                                                                   targetWhiteValue),
+                                                                                           true));
+                                                                           mqttClient.send(
+                                                                                   stateTopic,
+                                                                                   MqttMessageUtil.createMessage(
+                                                                                           targetStateOn ? "ON" : "OFF",
+                                                                                           true));
+                                                                         },
+                                                                         100,
+                                                                         TimeUnit.MILLISECONDS));
                                          registerLight(
                                                  lightConfigurationConsumers,
                                                  commandTopic,
@@ -349,12 +376,7 @@ public class DmxBrickletHandler implements DeviceHandler {
     } else {
       switchOffTimer = Duration.ofHours(1);
     }
-    AtomicReference<ScheduledFuture<?>> switchOffSchedule = new AtomicReference<>();
-    Consumer<ScheduledFuture<?>> handleSwitchOffSchedule =
-            scheduledFuture -> {
-              final ScheduledFuture<?> oldSchedule = switchOffSchedule.getAndSet(scheduledFuture);
-              if (oldSchedule != null && !oldSchedule.isDone()) oldSchedule.cancel(true);
-            };
+    Consumer<ScheduledFuture<?>> handleSwitchOffSchedule = new SinglePendingSchedulerConsumer();
 
     Runnable switchOff =
             () -> {
@@ -387,7 +409,7 @@ public class DmxBrickletHandler implements DeviceHandler {
                 mqttClient.send(brightnessTopic, MqttMessageUtil.createMessage("10", true));
                 mqttClient.send(stateTopic, MqttMessageUtil.createMessage("ON", true));
               } else {
-                final int v = Math.min(Math.max(brightnessBefore, 0) + 10, 255);
+                final int v = Math.min(Math.max(brightnessBefore, 0) + 25, 255);
                 mqttClient.send(
                         brightnessTopic, MqttMessageUtil.createMessage(Integer.toString(v), true));
               }
@@ -397,7 +419,7 @@ public class DmxBrickletHandler implements DeviceHandler {
     Runnable darker =
             () -> {
               final int brightnessBefore = currentBrightness.get();
-              final int v = Math.max(Math.min(255, brightnessBefore) - 10, 0);
+              final int v = Math.max(Math.min(255, brightnessBefore) - 25, 0);
               mqttClient.send(
                       brightnessTopic, MqttMessageUtil.createMessage(Integer.toString(v), true));
               handleSwitchOffSchedule.accept(
@@ -407,12 +429,7 @@ public class DmxBrickletHandler implements DeviceHandler {
             key -> disposableConsumers.apply(id + "-trigger-" + key.getDiscovery_id());
     Function<BinarySensorConfig, Consumer<Disposable>> pirConsumers =
             key -> disposableConsumers.apply(id + "-trigger-" + key.getUnique_id());
-    AtomicReference<ScheduledFuture<?>> pendingSchedule = new AtomicReference<>();
-    Consumer<ScheduledFuture<?>> handlePendingSchedule =
-            scheduledFuture -> {
-              final ScheduledFuture<?> oldSchedule = pendingSchedule.getAndSet(scheduledFuture);
-              if (oldSchedule != null && !oldSchedule.isDone()) oldSchedule.cancel(true);
-            };
+    Consumer<ScheduledFuture<?>> handlePendingSchedule = new SinglePendingSchedulerConsumer();
     Runnable startBrighter =
             () ->
                     startRunning(
@@ -577,7 +594,7 @@ public class DmxBrickletHandler implements DeviceHandler {
       handlePendingSchedule.accept(
               executorService.schedule(
                       () -> startRunning(action, canContinue, handlePendingSchedule),
-                      200,
+                      500,
                       TimeUnit.MILLISECONDS));
     }
   }
