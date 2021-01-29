@@ -14,6 +14,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tinkerforge.BrickletLCD128x64;
 import com.tinkerforge.IPConnection;
+import com.tinkerforge.IPConnectionBase;
 import com.tinkerforge.TinkerforgeException;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
@@ -511,11 +512,27 @@ public class LcdDeviceHandler implements DeviceHandler {
 
     final SinglePendingSchedulerConsumer schedulerConsumer = new SinglePendingSchedulerConsumer();
     Object lock = new Object();
+    final Disposable disposable =
+            () -> {
+              mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
+              // imageUpdateConsumer.accept(null);
+              contrastConsumer.accept(null);
+              backlightConsumer.accept(null);
+              sensorRegistration.accept(null);
+              // backlightEnableConsumer.accept(null);
+              bricklet.removeTouchPositionListener(touchPositionListener);
+            };
     Runnable drawNewScreen =
             () -> {
               synchronized (lock) {
-                currentTouchConsumer.set(paintCanvas.drawScreen(renderables));
-                brickletDisplay.drawBuffer();
+                final short connectionState = connection.getConnectionState();
+                if (connectionState == IPConnectionBase.CONNECTION_STATE_DISCONNECTED) {
+                  log.info("Disconnected " + uid + ", cleanup");
+                  disposable.dispose();
+                } else if (connectionState == IPConnectionBase.CONNECTION_STATE_CONNECTED) {
+                  currentTouchConsumer.set(paintCanvas.drawScreen(renderables));
+                  brickletDisplay.drawBuffer();
+                } else log.info("Connection state " + connectionState + ", skip update");
               }
             };
     final ChangeListener changeListener =
@@ -531,15 +548,7 @@ public class LcdDeviceHandler implements DeviceHandler {
     brickletDisplay.setBackgroundEnabled(false);
     changeListener.notifyChange();
 
-    return () -> {
-      mqttClient.send(stateTopic, MqttMessageUtil.OFFLINE_MESSAGE);
-      // imageUpdateConsumer.accept(null);
-      contrastConsumer.accept(null);
-      backlightConsumer.accept(null);
-      sensorRegistration.accept(null);
-      // backlightEnableConsumer.accept(null);
-      bricklet.removeTouchPositionListener(touchPositionListener);
-    };
+    return disposable;
   }
 
   @Value
