@@ -95,10 +95,15 @@
     </repositories>
     <distributionManagement>
         <repository>
-            <id>github</id>
+            <id>koa-releases</id>
             <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/koa/tfbridge</url>
+            <url>https://nexus.berg-turbenthal.ch/repository/maven-releases/</url>
         </repository>
+        <snapshotRepository>
+            <id>koa-snapshots</id>
+            <name>Snapshots</name>
+            <url>https://nexus.berg-turbenthal.ch/repository/maven-snapshots/</url>
+        </snapshotRepository>
     </distributionManagement>
     <build>
         <plugins>
@@ -135,7 +140,7 @@
                 <version>2.7.1</version>
                 <configuration>
                     <to>
-                        <image>docker.pkg.github.com/koa/tfbridge/${project.artifactId}</image>
+                        <image>docker-snapshot.berg-turbenthal.ch/${project.artifactId}</image>
                         <tags>
                             <tag>${project.version}</tag>
                             <tag>${local.version}</tag>
