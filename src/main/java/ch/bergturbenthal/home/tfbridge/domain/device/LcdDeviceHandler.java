@@ -101,6 +101,8 @@ public class LcdDeviceHandler implements DeviceHandler {
     });
     AtomicReference<Runnable> refreshWhiteValues = new AtomicReference<>(() -> {
     });
+    AtomicReference<Runnable> refreshBrightValues = new AtomicReference<>(() -> {
+    });
 
     final Optional<TouchDisplay> touchDisplay =
             Optional.ofNullable(touchDisplays)
@@ -142,6 +144,76 @@ public class LcdDeviceHandler implements DeviceHandler {
                         }
                       });
             });
+    final List<DoubleNumberEntry> brightnessEntries =
+            touchDisplay
+                    .map(
+                            display ->
+                                    Optional.ofNullable(display.getLightBrightness()).stream()
+                                            .flatMap(Collection::stream)
+                                            .map(
+                                                    lightConfig -> {
+                                                      DoubleNumberEntry doubleNumberEntry = new DoubleNumberEntry();
+                                                      AtomicReference<LightConfig> currentConfig = new AtomicReference<>();
+                                                      final Consumer<Disposable> disposableConsumer =
+                                                              new DisposableConsumer();
+
+                                                      configService.registerForDeviceAndConfiguration(
+                                                              LightConfig.class,
+                                                              lightConfig,
+                                                              new ConfigService.ConfigurationListener<>() {
+                                                                @Override
+                                                                public void notifyConfigAdded(final LightConfig configuration) {
+                                                                  currentConfig.set(configuration);
+                                                                  final String brightnessStateTopic =
+                                                                          configuration.getBrightness_state_topic();
+                                                                  final String brightnessTempCommandTopic =
+                                                                          configuration.getBrightness_command_topic();
+                                                                  doubleNumberEntry
+                                                                          .getValueTopic()
+                                                                          .set(Optional.ofNullable(
+                                                                                  brightnessTempCommandTopic));
+                                                                  mqttClient.registerTopic(
+                                                                          brightnessStateTopic,
+                                                                          receivedMqttMessage -> {
+                                                                            try {
+                                                                              final double currentValue =
+                                                                                      Double.parseDouble(
+                                                                                              new String(
+                                                                                                      receivedMqttMessage
+                                                                                                              .getMessage()
+                                                                                                              .getPayload()));
+                                                                              doubleNumberEntry
+                                                                                      .getCurrentValue()
+                                                                                      .set(Optional.of(currentValue));
+                                                                              refreshBrightValues.get().run();
+                                                                            } catch (RuntimeException ex) {
+                                                                              log.error("Cannot parse message", ex);
+                                                                              doubleNumberEntry
+                                                                                      .getCurrentValue()
+                                                                                      .set(Optional.empty());
+                                                                            }
+                                                                          },
+                                                                          disposableConsumer);
+                                                                }
+
+                                                                @Override
+                                                                public void notifyConfigRemoved(
+                                                                        final LightConfig configuration) {
+                                                                  if (Objects.equals(currentConfig.get(),
+                                                                                     configuration)) {
+                                                                    doubleNumberEntry.getValueTopic()
+                                                                                     .set(Optional.empty());
+                                                                    doubleNumberEntry.getCurrentValue()
+                                                                                     .set(Optional.empty());
+                                                                    disposableConsumer.accept(null);
+                                                                  }
+                                                                }
+                                                              });
+                                                      return doubleNumberEntry;
+                                                    })
+                                            .collect(Collectors.toList()))
+                    .orElse(Collections.emptyList());
+
     final List<DoubleNumberEntry> whiteBalanceEntries =
             touchDisplay
                     .map(
@@ -451,6 +523,32 @@ public class LcdDeviceHandler implements DeviceHandler {
 
     renderables.add(clock);
     renderables.add(currentTempBox);
+    if (!brightnessEntries.isEmpty()) {
+      RenderableNumber brightValue = new RenderableNumber(99.9, 30, Icons.BRIGHT_ICON, 0, 255);
+      brightValue.setValueChangeListener(
+              newValue ->
+                      brightnessEntries.stream()
+                                       .map(DoubleNumberEntry::getValueTopic)
+                                       .map(AtomicReference::get)
+                                       .filter(Optional::isPresent)
+                                       .map(Optional::get)
+                                       .forEach(
+                                               topic ->
+                                                       mqttClient.send(
+                                                               topic,
+                                                               MqttMessageUtil.createMessage(
+                                                                       Long.toString(Math.round(newValue)), true))));
+      refreshBrightValues.set(
+              () ->
+                      brightnessEntries.stream()
+                                       .map(DoubleNumberEntry::getCurrentValue)
+                                       .map(AtomicReference::get)
+                                       .filter(Optional::isPresent)
+                                       .mapToDouble(Optional::get)
+                                       .average()
+                                       .ifPresent(brightValue::setValue));
+      renderables.add(brightValue);
+    }
     if (!whiteBalanceEntries.isEmpty()) {
       RenderableNumber targetWhiteValue =
               new RenderableNumber(99.9, 30, Icons.COLOR_ICON, 133, 370);
