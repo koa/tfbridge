@@ -321,6 +321,11 @@ public class PaintCanvas implements Canvas {
   }
 
   @Override
+  public void setPixel(final int x, final int y, final boolean enable) {
+    painter.setPixel(x, y, enable);
+  }
+
+  @Override
   public int getWidth() {
     return painter.getWidth();
   }
@@ -522,6 +527,11 @@ public class PaintCanvas implements Canvas {
       if (sx > width || ey > height || sx < 0 || ey < 0)
         throw new IllegalArgumentException("Coordinates outside of window");
       return new WindowCanvas(this, sx + wx, sy + wy, ex + wx, ey + wy);
+    }
+
+    @Override
+    public void setPixel(final int x, final int y, final boolean enable) {
+      parentCanvas.setPixel(x + wx, y + wy, enable);
     }
 
     @Override

@@ -30,7 +30,7 @@ public class PngPainter implements Painter {
   public void fill(final int sx, final int sy, final int ex, final int ey, final boolean inverted) {
     for (int x = sx; x < ex; x++) {
       for (int y = sy; y < ey; y++) {
-        setPixel(x, y, !inverted);
+        setPixel(x, y, inverted);
       }
     }
   }

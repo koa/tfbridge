@@ -8,6 +8,8 @@ public interface Canvas {
 
   Canvas createWindow(int sx, int sy, int ex, int ey);
 
+  void setPixel(int x, int y, boolean enable);
+
   int getWidth();
 
   int getHeight();
