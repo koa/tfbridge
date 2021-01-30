@@ -30,7 +30,15 @@ jobs:
                 "username":"${{ secrets.NEXUS_USER }}",
                 "password":"${{ secrets.NEXUS_PASSWORD }}"
             },{
-               "id": "koa-snapshots",
+                "id": "koa-snapshots",
+                "username":"${{ secrets.NEXUS_USER }}",
+                "password":"${{ secrets.NEXUS_PASSWORD }}"
+            },{
+                "id": "docker.berg-turbenthal.ch",
+                "username":"${{ secrets.NEXUS_USER }}",
+                "password":"${{ secrets.NEXUS_PASSWORD }}"
+            },{
+               "id": "docker-snapshot.berg-turbenthal.ch",
                "username":"${{ secrets.NEXUS_USER }}",
                "password":"${{ secrets.NEXUS_PASSWORD }}"
             }]
