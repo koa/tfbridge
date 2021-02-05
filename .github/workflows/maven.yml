@@ -22,25 +22,25 @@ jobs:
         with:
           servers: |
             [{
-                "id": "docker.pkg.github.com",
-                "username":"${{ github.actor }}",
-                "password":"${{ secrets.GITHUB_TOKEN }}"
+               "id": "koa-releases",
+               "username":"${{ secrets.NEXUS_USER }}",
+               "password":"${{ secrets.NEXUS_PASSWORD }}"
             },{
-                "id": "koa-releases",
-                "username":"${{ secrets.NEXUS_USER }}",
-                "password":"${{ secrets.NEXUS_PASSWORD }}"
+               "id": "koa-snapshots",
+               "username":"${{ secrets.NEXUS_USER }}",
+               "password":"${{ secrets.NEXUS_PASSWORD }}"
             },{
-                "id": "koa-snapshots",
-                "username":"${{ secrets.NEXUS_USER }}",
-                "password":"${{ secrets.NEXUS_PASSWORD }}"
-            },{
-                "id": "docker.berg-turbenthal.ch",
-                "username":"${{ secrets.NEXUS_USER }}",
-                "password":"${{ secrets.NEXUS_PASSWORD }}"
+               "id": "docker.berg-turbenthal.ch",
+               "username":"${{ secrets.NEXUS_USER }}",
+               "password":"${{ secrets.NEXUS_PASSWORD }}"
             },{
                "id": "docker-snapshot.berg-turbenthal.ch",
                "username":"${{ secrets.NEXUS_USER }}",
                "password":"${{ secrets.NEXUS_PASSWORD }}"
+            },{
+               "id": "docker.pkg.github.com",
+               "username":"${{ github.actor }}",
+               "password":"${{ secrets.GITHUB_TOKEN }}"
             }]
       - name: Build with Maven
         run: mvn --batch-mode deploy -DperformRelease=true --file pom.xml
